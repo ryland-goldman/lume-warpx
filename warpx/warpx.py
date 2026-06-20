@@ -55,7 +55,29 @@ class WarpX(Base):
         self.vprint(f"WarpX configured; diagnostics saved to {self.path}")
 
     def _build_grid(self, grid_config):
-        raise NotImplementedError
+        self._validate_inputs(["grid_type"], grid_config, "grid.")
+        grid_type = grid_config["grid_type"]
+        if not grid_type in self.available.grid_type:
+            raise ValueError(f"WarpX.input.grid.grid_type is invalid value `{grid_type}`")
+        grid_cls = getattr(pywarpx.picmi, grid_type)
+        
+        grid_params = []
+        if grid_type == "Cartesian3DGrid":
+            grid_params = ["number_of_cells", "lower_bound", "upper_bound", "lower_boundary_conditions", "upper_boundary_conditions", "nx", "ny", "nz", "xmin", "xmax", "ymin", "ymax", "zmin", "zmax", "bc_xmin", "bc_xmax", "bc_ymin", "bc_ymax", "bc_zmin", "bc_zmax", "moving_window_velocity", "refined_regions", "lower_bound_particles", "upper_bound_particles", "xmin_particles", "xmax_particles", "ymin_particles", "ymax_particles", "zmin_particles", "zmax_particles", "lower_boundary_conditions_particles", "upper_boundary_conditions_particles", "bc_xmin_particles", "bc_xmax_particles", "bc_ymin_particles", "bc_ymax_particles", "bc_zmin_particles", "bc_zmax_particles", "guard_cells", "pml_cells"]
+        elif grid_type == "Cartesian2DGrid":
+            grid_params = ["number_of_cells", "lower_bound", "upper_bound", "lower_boundary_conditions", "upper_boundary_conditions", "nx", "ny", "xmin", "xmax", "ymin", "ymax", "bc_xmin", "bc_xmax", "bc_ymin", "bc_ymax", "moving_window_velocity", "refined_regions", "lower_bound_particles", "upper_bound_particles", "xmin_particles", "xmax_particles", "ymin_particles", "ymax_particles", "lower_boundary_conditions_particles", "upper_boundary_conditions_particles", "bc_xmin_particles", "bc_xmax_particles", "bc_ymin_particles", "bc_ymax_particles", "guard_cells", "pml_cells"]
+        elif grid_type == "Cartesian1DGrid":
+            grid_params = ["number_of_cells", "lower_bound", "upper_bound", "lower_boundary_conditions", "upper_boundary_conditions", "nx", "xmin", "xmax", "bc_xmin", "bc_xmax", "moving_window_velocity", "refined_regions", "lower_bound_particles", "upper_bound_particles", "xmin_particles", "xmax_particles", "lower_boundary_conditions_particles", "upper_boundary_conditions_particles", "bc_xmin_particles", "bc_xmax_particles", "guard_cells", "pml_cells"]
+        elif grid_type == "CylindricalGrid":
+            grid_params = ["number_of_cells", "lower_bound", "upper_bound", "lower_boundary_conditions", "upper_boundary_conditions", "nr", "nz", "n_azimuthal_modes", "rmin", "rmax", "zmin", "zmax", "bc_rmin", "bc_rmax", "bc_zmin", "bc_zmax", "moving_window_velocity", "refined_regions", "rmin_particles", "rmax_particles", "zmin_particles", "zmax_particles", "lower_bound_particles", "upper_bound_particles", "lower_boundary_conditions_particles", "upper_boundary_conditions_particles", "bc_rmin_particles", "bc_rmax_particles", "bc_zmin_particles", "bc_zmax_particles", "guard_cells", "pml_cells"]
+        
+        for k in grid_config:
+            if k not in grid_params:
+                if k == "grid_type": continue
+                raise ValueError(f"Unknown attribute WarpX.inputs.grid.{k}")
+
+        kwargs = {k: grid_config[k] for k in grid_params if k in grid_config}
+        self._grid = grid_cls(**kwargs)
 
     def _build_solver(self, solver_config):
         raise NotImplementedError
