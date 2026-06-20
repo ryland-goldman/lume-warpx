@@ -32,18 +32,14 @@ class WarpX(Base):
             self.path = self.workdir or tempfile.mkdtemp(prefix="warpx_")
         os.makedirs(self.path, exist_ok=True)
 
-        self._validate_inputs(["grid","solver"])
+        self._validate_inputs(["grid","solver","simulation"])
         grid_config = self.inputs["grid"]
         solver_config = self.inputs["solver"]
+        sim_config = self.inputs["simulation"]
         
         self._build_grid(grid_config)
         self._build_solver(solver_config)
-
-        self._sim = pywarpx.picmi.Simulation(
-            solver=self._solver,
-            max_steps=self.input["max_steps"],
-            verbose=int(self.verbose),
-        )
+        self._build_sim(sim_config)
 
         self.configured = True
         self.vprint(f"WarpX configured; diagnostics saved to {self.path}")
@@ -125,6 +121,14 @@ class WarpX(Base):
 
         kwargs = {k: solver_config[k] for k in solver_params if k in solver_config} | applied_kwargs
         self._solver = solver_cls(grid=self._grid, **kwargs)
+
+    def _build_sim(self, sim_config):
+        sim_params = ["time_step_size", "max_steps", "max_time", "particle_shape", "gamma_boost", "load_balancing"]
+        for k in sim_config:
+            if k not in sim_params:
+                raise ValueError(f"Unknown attribute WarpX.inputs.simulation.{k}")
+        kwargs = {k: sim_config[k] for k in sim_params if k in sim_config}
+        self._sim = pywarpx.picmi.Simulation(solver=self._solver, verbose=int(self.verbose), **kwargs)
     
     def run(self):
         raise NotImplementedError
