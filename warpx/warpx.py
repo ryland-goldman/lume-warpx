@@ -33,14 +33,8 @@ class WarpX(Base):
         os.makedirs(self.path, exist_ok=True)
 
         self._validate_inputs(["grid","solver"])
-        grid_config = self.input["grid"]
-        solver_config = self.input["solver"]
-
-        self._validate_inputs(["solver_type"], solver_config, "solver.")
-
-        
-        if not solver_config["solver_type"] in self.available.solver_type:
-            raise ValueError(f"WarpX.inputs.solver.solver_type is invalid value `{solver_config["solver_type"]}`")
+        grid_config = self.inputs["grid"]
+        solver_config = self.inputs["solver"]
         
         self._build_grid(grid_config)
         self._build_solver(solver_config)
@@ -80,7 +74,57 @@ class WarpX(Base):
         self._grid = grid_cls(**kwargs)
 
     def _build_solver(self, solver_config):
-        raise NotImplementedError
+        self._validate_inputs(["solver_type"], solver_config, "solver.")
+        solver_type = solver_config["solver_type"]
+        if not solver_type in self.available.solver_type:
+            raise ValueError(f"WarpX.input.solver.solver_type is invalid value `{solver_type}`")
+        picmi_solvers = {
+            "EM_Yee": ["ElectromagneticSolver","Yee"],
+            "EM_CKC": ["ElectromagneticSolver","CKC"],
+            "EM_Lehe": ["ElectromagneticSolver","Lehe"],
+            "EM_PSTD": ["ElectromagneticSolver","PSTD"],
+            "EM_PSATD": ["ElectromagneticSolver","PSATD"],
+            "EM_GPSTD": ["ElectromagneticSolver","GPSTD"],
+            "EM_DS": ["ElectromagneticSolver","DS"],
+            "EM_ECT": ["ElectromagneticSolver","ECT"],
+            "ES_FFT_LF": ["ElectrostaticSolver","FFT"],
+            "ES_FFT_EMS": ["ElectrostaticSolver","FFT"],
+            "ES_FFT_EP": ["ElectrostaticSolver","FFT"],
+            "ES_FFT_Rel": ["ElectrostaticSolver","FFT"],
+            "ES_MLMG_LF": ["ElectrostaticSolver","Multigrid"],
+            "ES_MLMG_EMS": ["ElectrostaticSolver","Multigrid"],
+            "ES_MLMG_EP": ["ElectrostaticSolver","Multigrid"],
+            "ES_MLMG_Rel": ["ElectrostaticSolver","Multigrid"],
+            "Hybrid_RK4": ["HybridPICSolver",False],
+            "Hybrid_RKF45": ["HybridPICSolver",True],
+        }
+        solver_cls = getattr(pywarpx.picmi, picmi_solvers[solver_type][0])
+        
+        solver_params = []
+        applied_kwargs = {}
+        if picmi_solvers[solver_type][0] == "ElectromagneticSolver":
+            applied_kwargs["method"] = picmi_solvers[solver_type][1]
+            solver_params = ["stencil_order", "cfl", "source_smoother", "field_smoother", "subcycling", "galilean_velocity", "divE_cleaning", "divB_cleaning", "pml_divE_cleaning", "pml_divB_cleaning"]
+        if picmi_solvers[solver_type][0] == "ElectrostaticSolver":
+            applied_kwargs["method"] = picmi_solvers[solver_type][1]
+            if "Rel" in solver_type:
+                applied_kwargs["warpx_relativistic"] = True
+            if "EMS" in solver_type:
+                applied_kwargs["warpx_magnetostatic"] = True
+            if "EP" in solver_type:
+                applied_kwargs["warpx_effective_potential"] = True
+            solver_params = ["required_precision", "maximum_iterations"]
+        if picmi_solvers[solver_type][0] == "HybridPICSolver":
+            applied_kwargs["use_rkf45"] = picmi_solvers[solver_type][1]
+            solver_params = ["Te", "n0", "gamma", "n_floor", "plasma_resistivity", "plasma_hyper_resistivity", "substeps", "substep_rtol", "substep_atol", "substep_safety", "substep_max_growth", "max_substep_attempts", "holmstrom_vacuum_region", "Jx_external_function", "Jy_external_function", "Jz_external_function", "A_external", "do_external_diva_cleaning"]
+            
+        for k in solver_config:
+            if k not in solver_params:
+                if k == "solver_type": continue
+                raise ValueError(f"Unknown attribute WarpX.inputs.solver.{k}")
+
+        kwargs = {k: solver_config[k] for k in solver_params if k in solver_config} | applied_kwargs
+        self._solver = solver_cls(grid=self._grid, **kwargs)
     
     def run(self):
         raise NotImplementedError
