@@ -4,12 +4,16 @@ import time
 import tempfile
 import pywarpx
 from openpmd_viewer import OpenPMDTimeSeries
+import json
+import h5py
+import numpy as np
 __all__ = ["WarpX"]
 
 class WarpX(Base):
     _grid = None
     _solver = None
     _sim = None
+    _diag_dir = None
 
     class available:
         grid_type = ["Cartesian3DGrid", "Cartesian2DGrid", "Cartesian1DGrid", "CylindricalGrid"]
@@ -148,19 +152,70 @@ class WarpX(Base):
             self.vprint(f"WarpX run took {time.time() - t0:.1f} s")
 
         self.load_output()
-        raise NotImplementedError
 
     def archive(self, h5=None):
-        raise NotImplementedError
+        if h5 is None:
+            h5 = f"warpx_{self.fingerprint()}.h5"
+        if isinstance(h5, str):
+            h5 = h5py.File(h5, "w")
+
+        h5.attrs["fingerprint"] = self.fingerprint()
+        h5.attrs["finished"] = self.finished
+
+        h5.create_group("input").attrs["json"] = json.dumps(self.inputs)
+        g_out = h5.create_group("output")
+
+        if self.output is not None:
+            if self._diag_dir is None or not os.path.isdir(self._diag_dir):
+                raise FileNotFoundError("Cannot archive output: diagnostics directory is unknown or missing. Run load_output() first.")
+            g_out.attrs["iterations"] = json.dumps([int(i) for i in self.output.iterations])
+            g_files = g_out.create_group("files")
+            for root, _, files in os.walk(self._diag_dir):
+                for name in files:
+                    abspath = os.path.join(root, name)
+                    relpath = os.path.relpath(abspath, self._diag_dir)
+                    with open(abspath, "rb") as f:
+                        data = np.frombuffer(f.read(), dtype="uint8")
+                    g_files.create_dataset(relpath, data=data)
+
+        self.vprint("Archived WarpX state")
+        return h5
 
     def load_archive(self, h5, configure=True):
-        raise NotImplementedError
+        if isinstance(h5, str):
+            h5 = h5py.File(h5, "r")
+
+        self.inputs = json.loads(h5["input"].attrs["json"])
+        self.finished = bool(h5.attrs.get("finished", False))
+        self.configured = False
+        self.error = False
+        self.path = tempfile.mkdtemp(prefix="warpx_archive_")
+
+        self.output = None
+        if "output" in h5 and "files" in h5["output"]:
+            diag_dir = os.path.join(self.path, "diags", "diag1")
+            g_files = h5["output"]["files"]
+
+            def _restore(name, obj):
+                if isinstance(obj, h5py.Dataset):
+                    dest = os.path.join(diag_dir, name)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with open(dest, "wb") as f:
+                        f.write(obj[()].astype("uint8").tobytes())
+
+            g_files.visititems(_restore)
+            self._diag_dir = diag_dir
+            self.output = OpenPMDTimeSeries(diag_dir)
+
+        if configure: self.configure()
+        self.vprint("Loaded WarpX archive")
 
     def load_output(self, diag_dir=None):
         if diag_dir is None:
             diag_dir = os.path.join(self.path, "diags", "diag1")
         if not os.path.isdir(diag_dir):
           raise FileNotFoundError(f"No WarpX diagnostics found at {diag_dir}")
+        self._diag_dir = diag_dir
         self.output = OpenPMDTimeSeries(diag_dir)
         self.vprint(f"Loaded {len(self.output.iterations)} diagnostic dumps")
         return self.output
