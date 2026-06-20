@@ -3,6 +3,7 @@ import os
 import time
 import tempfile
 import pywarpx
+from openpmd_viewer import OpenPMDTimeSeries
 __all__ = ["WarpX"]
 
 class WarpX(Base):
@@ -155,8 +156,14 @@ class WarpX(Base):
     def load_archive(self, h5, configure=True):
         raise NotImplementedError
 
-    def load_output(self, **kwargs):
-        raise NotImplementedError
+    def load_output(self, diag_dir=None):
+        if diag_dir is None:
+            diag_dir = os.path.join(self.path, "diags", "diag1")
+        if not os.path.isdir(diag_dir):
+          raise FileNotFoundError(f"No WarpX diagnostics found at {diag_dir}")
+        self.output = OpenPMDTimeSeries(diag_dir)
+        self.vprint(f"Loaded {len(self.output.iterations)} diagnostic dumps")
+        return self.output
 
     def plot(self, *args, **kwargs):
         raise NotImplementedError
