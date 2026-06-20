@@ -1,5 +1,6 @@
 from lume.base import Base
 import os
+import time
 import tempfile
 import pywarpx
 __all__ = ["WarpX"]
@@ -131,6 +132,21 @@ class WarpX(Base):
         self._sim = pywarpx.picmi.Simulation(solver=self._solver, verbose=int(self.verbose), **kwargs)
     
     def run(self):
+        if not self.configured:
+            self.configure()
+
+        t0 = time.time()
+        self.vprint("Running WarpX...")
+        try:
+            self._sim.step()
+            self.finished = True
+        except Exception:
+            self.error = True
+            raise
+        finally:
+            self.vprint(f"WarpX run took {time.time() - t0:.1f} s")
+
+        self.load_output()
         raise NotImplementedError
 
     def archive(self, h5=None):
