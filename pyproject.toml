@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lume-warpx"
+version = "1.0.0"
+description = "LUME framework interface for WarpX"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Ryland Goldman", email = "rylandgoldman@ucla.edu" }]
+license = "BSD-3-Clause"
+license-files = ["LICENSE.md"]
+dependencies = [
+    "openpmd-api==0.17.0",
+    "openpmd-viewer==1.11.0",
+    "openpmd-beamphysics==0.14.1",
+    "numpy==2.4.6",
+    "scipy==1.17.1",
+    "h5py",
+    "pydantic>=2",
+    "tqdm==4.67.3",
+    "warpx @ git+https://github.com/BLAST-WarpX/warpx.git"
+  ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[project.urls]
+Homepage = "https://github.com/ryland-goldman/lume-warpx"
+Repository = "https://github.com/ryland-goldman/lume-warpx"
