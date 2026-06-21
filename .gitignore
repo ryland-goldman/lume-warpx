@@ -29,3 +29,7 @@ ENV/
 env.bak/
 venv.bak/
 .DS_Store
+Backtrace*
+warpx_used_inputs
+*.h5
+*.png
