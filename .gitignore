@@ -35,3 +35,4 @@ warpx_used_inputs
 *.png
 diags/
 examples/**/output/
+docs/_build/
