@@ -4,9 +4,13 @@ import time
 import tempfile
 import pywarpx
 from openpmd_viewer import OpenPMDTimeSeries
+import beamphysics
+import scipy.constants
 import json
 import h5py
+import matplotlib.pyplot as plt
 import numpy as np
+import warnings
 __all__ = ["WarpX"]
 
 class WarpX(Base):
@@ -18,6 +22,23 @@ class WarpX(Base):
     class available:
         grid_type = ["Cartesian3DGrid", "Cartesian2DGrid", "Cartesian1DGrid", "CylindricalGrid"]
         solver_type = ["EM_Yee","EM_CKC","EM_Lehe","EM_PSTD","EM_PSATD","EM_GPSTD","EM_DS","EM_ECT","ES_FFT_LF","ES_FFT_EMS","ES_FFT_EP","ES_FFT_Rel","ES_MLMG_LF","ES_MLMG_EMS","ES_MLMG_EP","ES_MLMG_Rel","Hybrid_RK4","Hybrid_RKF45"]
+
+        class fields:
+            list = ["E","Ex","Ey","Ez","Er","Etheta","Emag",
+                    "B","Bx","By","Bz","Br","Btheta","Bmag",
+                    "J","Jx","Jy","Jz","Jr","Jtheta","Jmag",
+                    "rho","phi"]
+            axis = ["x","y","z","r","theta"]
+
+        class plot1D:
+            coordinate = ["x","y","z","r","theta","t"]
+            statistic = ["mean","sigma","std","min","max","ptp","delta","cov"]
+            scalar = ["norm_emit_x","norm_emit_y","norm_emit_4d","charge","n_particle"]
+
+        class plot2D:
+            coordinate = ["x","y","z","r","theta","t",
+                          "px","py","pz","pr","ptheta",
+                          "kinetic_energy","energy","gamma","beta","p","xp","yp","Lz"]
 
     def _validate_inputs(self, req_inputs, inputs=None, loc=""):
         if inputs == None:
@@ -220,5 +241,188 @@ class WarpX(Base):
         self.vprint(f"Loaded {len(self.output.iterations)} diagnostic dumps")
         return self.output
 
-    def plot(self, *args, **kwargs):
-        raise NotImplementedError
+    # TODO: replace the remainder of the file from here with human code (below was generated with Claude Opus 4.8)
+
+    def _validate_output(self):
+        if self.output is None:
+            raise RuntimeError("No output loaded; call run() or load_output() first")
+        return self.output
+
+    def _validate_coord(self, coord, scope="plot2D"):
+        allowed = self.available.plot1D.coordinate if scope == "plot1D" else self.available.plot2D.coordinate
+        if coord not in allowed:
+            raise ValueError(f"Unknown coordinate `{coord}`; expected one of {allowed}")
+        return coord
+
+    def _particle_group(self, species=None, iteration=None, select=None):
+        ts = self._validate_output()
+        
+        if not ts.avail_species: raise ValueError("No particle species in WarpX output")
+        
+        if species is None: species = ts.avail_species[0]
+        elif species not in ts.avail_species: raise ValueError(f"Unknown species `{species}`; available: {ts.avail_species}")
+        
+        if iteration is None: iteration = int(ts.iterations[-1])
+
+        want = [c for c in ("x", "y", "z", "ux", "uy", "uz", "w", "mass", "charge") if c in ts.avail_record_components[species]]
+        arrays = dict(zip(want, ts.get_particle(want, species=species, iteration=iteration, select=select)))
+
+        n = len(next(iter(arrays.values()))) if arrays else 0
+        if n == 0: raise ValueError(f"Species `{species}` has no particles at iteration {iteration}")
+        zeros = np.zeros(n)
+        x, y, z = (arrays.get(k, zeros) for k in ("x", "y", "z"))
+        ux, uy, uz = (arrays.get(k, zeros) for k in ("ux", "uy", "uz"))
+        w = arrays.get("w", np.ones(n))
+
+        mass_eV, charge_C = None, None
+        if "mass" in arrays:
+            m_kg = float(arrays["mass"][0])
+            mass_eV = m_kg * scipy.constants.c ** 2 / scipy.constants.e if m_kg != 0 else 0.0
+        if "charge" in arrays:
+            charge_C = float(arrays["charge"][0])
+        if mass_eV is None or charge_C is None:
+            try:
+                mass_eV = beamphysics.species.mass_of(species) if mass_eV is None else mass_eV
+                charge_C = beamphysics.species.charge_of(species) if charge_C is None else charge_C
+            except Exception:
+                warnings.warn(f"Could not determine mass/charge for species `{species}`; momentum and charge scaling may be wrong")
+
+        if mass_eV is not None and mass_eV != 0.0:  # massive: openpmd_viewer momenta are gamma*beta
+            px, py, pz = ux * mass_eV, uy * mass_eV, uz * mass_eV
+        else:        # massless (or unknown mass): momenta are already in kg*m/s
+            scale = scipy.constants.c / scipy.constants.e
+            px, py, pz = ux * scale, uy * scale, uz * scale
+
+        weight = np.abs(w * charge_C) if charge_C else w
+        t_sim = float(ts.t[list(ts.iterations).index(iteration)])
+        data = dict(x=x, y=y, z=z, px=px, py=py, pz=pz, t=np.full(n, t_sim), status=np.ones(n), weight=weight, species=str(species))
+        return beamphysics.ParticleGroup(data=data)
+
+    def _parse_field(self, field):
+        ts = self._validate_output()
+        if ts.avail_fields is None: raise ValueError("No field data in WarpX output")
+
+        avail = {a.lower(): a for a in ts.avail_fields}
+
+        def is_vector(name): return ts.fields_metadata[name]["type"] == "vector"
+
+        if field.lower() in avail:
+            name = avail[field.lower()]
+            # a bare vector name (E/B/J) is treated as its magnitude
+            return (name, "mag", None) if is_vector(name) else (name, "scalar", None)
+
+        for suffix in ("mag", "theta", "x", "y", "z", "r", "t"):
+            base = field[:-len(suffix)]
+            if field.endswith(suffix) and base.lower() in avail:
+                name = avail[base.lower()]
+                if not is_vector(name): raise ValueError(f"Field `{field}` looks like a component of `{name}`, but `{name}` is a scalar field — use it without a component suffix")
+                if suffix == "mag": return name, "mag", None
+                coord = "t" if suffix == "theta" else suffix   # openPMD names the azimuth `t`
+                
+                geom = ts.fields_metadata[name]["geometry"]
+                valid = {"x", "y", "z", "r", "t"} if geom == "thetaMode" else {"x", "y", "z"}
+                if coord not in valid: raise ValueError(f"Field `{field}` (component '{coord}') is not valid for {geom} geometry; valid components: {sorted(valid)}")
+
+                return name, "component", coord
+            
+        raise ValueError(f"Unknown field `{field}`; expected one of {self.available.fields.list} (present in output: {avail})")
+
+    def _field_plane(self, field, coord, x, y, iteration, theta, m):
+        ts = self._validate_output()
+        axes = list(ts.fields_metadata[field]["axis_labels"])
+        for ax in (x, y):
+            if ax not in axes:
+                raise ValueError(f"Axis `{ax}` is not available for field `{field}`; plane axes must be among {axes}")
+        slice_across = [a for a in axes if a not in (x, y)] or None
+        F, info = ts.get_field(field=field, coord=coord, iteration=iteration, slice_across=slice_across, theta=theta, m=m)
+        order = list(info.axes.values())
+        if order == [y, x]: pass
+        elif order == [x, y]: F = F.T
+        else: raise ValueError(f"Could not orient field plane (got axes {order}, wanted {[y, x]})")
+        return F, getattr(info, x), getattr(info, y)
+
+    def plot_fields(self, field, x, y, *args, iteration=None, theta=0.0, m="all", ax=None, **kwargs):
+        ts = self._validate_output()
+        if iteration is None:
+            iteration = int(ts.iterations[-1])
+        name, mode, coord = self._parse_field(field)
+
+        if ax is None:
+            _, ax = plt.subplots()
+
+        if mode == "mag":
+            geom = ts.fields_metadata[name]["geometry"]
+            vec_coords = ["r", "t", "z"] if geom == "thetaMode" else ["x", "y", "z"]
+            F = None
+            for c in vec_coords:
+                Fc, xc, yc = self._field_plane(name, c, x, y, iteration, theta, m)
+                F = Fc ** 2 if F is None else F + Fc ** 2
+            F = np.sqrt(F)
+            label = f"|{name}|"
+        else:  # 'component' or 'scalar'
+            F, xc, yc = self._field_plane(name, coord, x, y, iteration, theta, m)
+            label = field
+        extent = [xc[0], xc[-1], yc[0], yc[-1]]
+        im = ax.imshow(F, extent=extent, origin="lower", aspect="auto", **kwargs)
+        ax.figure.colorbar(im, ax=ax, label=label)
+
+        ax.set_xlabel(x)
+        ax.set_ylabel(y)
+        ax.set_title(f"{label} (iteration {iteration})")
+        self.vprint(f"Plotted field {field} over the {x}-{y} plane at iteration {iteration}")
+        return ax.figure
+
+    def plot1D(self, x, y, *args, species=None, iteration=None, select=None, n_slice=50, **kwargs):
+        if x not in self.available.plot1D.coordinate:
+            raise ValueError(f"Unknown slice coordinate `{x}`; expected one of {self.available.plot1D.coordinate}")
+        stat = self._parse_stat(y)
+        ts = self._validate_output()
+
+        if x == "t":
+            if species is not None and species not in (ts.avail_species or []): raise ValueError(f"Unknown species `{species}`; available: {ts.avail_species}")
+
+            times, yvals = [], []
+            for it, t in zip(ts.iterations, ts.t):
+                try:
+                    pg = self._particle_group(species=species, iteration=int(it), select=select)
+                except ValueError:
+                    continue  # skip dumps with no particles for this species
+                times.append(float(t))
+                yvals.append(pg[stat])
+
+            fig, ax = plt.subplots()
+            ax.plot(times, yvals, **kwargs)
+            ax.set_xlabel("t [s]")
+            ax.set_ylabel(y)
+            ax.set_title(f"{y} vs t")
+            self.vprint(f"Plotted {y} vs t over {len(times)} dumps")
+            return fig
+
+        pg = self._particle_group(species=species, iteration=iteration, select=select)
+        fig = pg.slice_plot(stat, slice_key=x, n_slice=n_slice, return_figure=True, **kwargs)
+        self.vprint(f"Plotted {y} vs {x} ({pg.n_particle} particles)")
+        return fig
+
+    def _parse_stat(self, y):
+        if y in self.available.plot1D.scalar:
+            return y
+        if y.startswith("cov_"):
+            parts = y[len("cov_"):].split("__")
+            if len(parts) != 2:
+                raise ValueError(f"`cov` statistic must be cov_<a>__<b>, got `{y}`")
+            return "cov_" + "__".join(self._validate_coord(p, scope="plot1D") for p in parts)
+        for prefix in self.available.plot1D.statistic:
+            if prefix == "cov":
+                continue
+            if y.startswith(prefix + "_"):
+                base = y[len(prefix) + 1:]
+                prefix = "sigma" if prefix == "std" else prefix
+                return f"{prefix}_{self._validate_coord(base, scope='plot1D')}"
+        raise ValueError(f"Unknown statistic `{y}`; use <stat>_<coord> with stat in {self.available.plot1D.statistic}, or one of {self.available.plot1D.scalar}")
+
+    def plot2D(self, x, y, *args, species=None, iteration=None, select=None, bins=None, **kwargs):
+        kx, ky = self._validate_coord(x), self._validate_coord(y)
+        pg = self._particle_group(species=species, iteration=iteration, select=select)
+        fig = pg.plot(kx, ky, bins=bins, return_figure=True, **kwargs)
+        self.vprint(f"Plotted {y} vs {x} phase space ({pg.n_particle} particles)")
+        return fig

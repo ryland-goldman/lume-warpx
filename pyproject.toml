@@ -17,10 +17,9 @@ dependencies = [
     "openpmd-viewer==1.11.0",
     "openpmd-beamphysics==0.14.1",
     "numpy==2.4.6",
-    "scipy==1.17.1",
+    "scipy",
     "h5py",
-    "pydantic>=2",
-    "tqdm==4.67.3",
+    "matplotlib",
     "warpx @ git+https://github.com/BLAST-WarpX/warpx.git"
   ]
 
