@@ -165,7 +165,40 @@ class WarpX(Base):
                 raise ValueError(f"Unknown attribute WarpX.inputs.simulation.{k}")
         kwargs = {k: sim_config[k] for k in sim_params if k in sim_config}
         self._sim = pywarpx.picmi.Simulation(solver=self._solver, verbose=int(self._verbose), **kwargs)
-        
+
+    def _build_diags(self, diag_config):
+        pass
+
+    def _build_fields(self, field_config):
+        pass
+
+    def _build_laser(self, laser_config):
+        pass
+
+    def _build_species(self, species_config):
+        pass
+
+    def _build_layout(self, layout_config):
+        pass
+
+    def _build_collisions(self, collison_config):
+        pass
+
+    def _build_distribution(self, dist_config):
+        pass
+
+    def _build_evolve_scheme(self, es_config):
+        pass
+
+    def _build_embedded_boundary(self, eb_config):
+        pass
+
+    def _build_smoother(self, smoother_config):
+        pass
+
+    def _build_preconditioner(self, pc_config):
+        pass
+
     def run(self):
         if not self._configured:
             self.configure()
