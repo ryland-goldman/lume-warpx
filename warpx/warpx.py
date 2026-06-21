@@ -217,7 +217,44 @@ class WarpX(Base):
         self._sim.add_diagnostic(diag_cls(**kwargs))
 
     def _build_field(self, field_config):
-        pass
+        self._validate_inputs(["field_type"], field_config, "fields.")
+        field_type = field_config["field_type"]
+        if not field_type in self.available.applied_fields:
+            raise ValueError(f"WarpX.input.fields.field_type is invalid value `{field_type}`")
+        picmi_fields = {
+            "AnalyticInitial": "AnalyticInitialField",
+            "ConstantApplied": "ConstantAppliedField",
+            "AnalyticApplied": "AnalyticAppliedField",
+            "LoadInitial": "LoadInitialField",
+            "PlasmaLens": "PlasmaLens",
+            "Mirror": "Mirror",
+        }
+        field_cls = getattr(pywarpx.picmi, picmi_fields[field_type])
+
+        field_params = []
+        if field_type == "AnalyticInitial":
+            field_params = ["Ex_expression", "Ey_expression", "Ez_expression", "Bx_expression", "By_expression", "Bz_expression", "lower_bound", "upper_bound", "warpx_maxlevel_extEMfield_init", "warpx_do_initial_div_cleaning", "warpx_projection_div_cleaner_atol", "warpx_projection_div_cleaner_rtol"]
+        elif field_type == "ConstantApplied":
+            field_params = ["Ex", "Ey", "Ez", "Bx", "By", "Bz", "lower_bound", "upper_bound"]
+        elif field_type == "AnalyticApplied":
+            field_params = ["Ex_expression", "Ey_expression", "Ez_expression", "Bx_expression", "By_expression", "Bz_expression", "lower_bound", "upper_bound"]
+        elif field_type == "LoadInitial":
+            self._validate_inputs(["read_fields_from_path"], field_config, "fields.")
+            field_params = ["read_fields_from_path", "load_B", "load_E", "warpx_do_initial_div_cleaning", "warpx_projection_div_cleaner_atol", "warpx_projection_div_cleaner_rtol"]
+        elif field_type == "PlasmaLens":
+            self._validate_inputs(["period", "starts", "lengths"], field_config, "fields.")
+            field_params = ["period", "starts", "lengths", "strengths_E", "strengths_B"]
+        elif field_type == "Mirror":
+            self._validate_inputs(["depth", "number_of_cells"], field_config, "fields.")
+            field_params = ["x_front_location", "y_front_location", "z_front_location", "depth", "number_of_cells"]
+
+        for k in field_config:
+            if k not in field_params:
+                if k == "field_type": continue
+                raise ValueError(f"Unknown attribute WarpX.inputs.fields.{k}")
+
+        kwargs = {k: field_config[k] for k in field_params if k in field_config}
+        self._sim.add_applied_field(field_cls(**kwargs))
 
     def _build_laser(self, laser_config):
         pass
