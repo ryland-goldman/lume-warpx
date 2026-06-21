@@ -20,6 +20,8 @@ class WarpX(Base):
         diagnostics = ["Particle","Field","TimeAveragedField","ElectrostaticField","Reduced","LabFrameParticle","LabFrameField"]
         applied_fields = ["AnalyticInitial","ConstantApplied","AnalyticApplied","FromFile","PlasmaLens","Mirror"]
         laser_pulses = ["Gaussian","Analytic"]
+        species_distributions = ["GaussianBunch","Uniform","Analytic","UniformFlux","AnalyticFlux","ParticleList","FromFile"]
+        species_layouts = ["Gridded","PseudoRandom"]
 
         class fields:
             list = ["E","Ex","Ey","Ez","Er","Etheta","Emag",
@@ -262,15 +264,66 @@ class WarpX(Base):
         pass
 
     def _build_species(self, species_config):
-        pass
+        self._validate_inputs(["distribution-type","layout"],species_config,"species.")
 
-    def _build_layout(self, layout_config):
-        pass
+        distribution = species_config["distribution-type"]
+        layout = species_config["layout"]
+
+        if not distribution in self.available.species_distributions:
+            raise ValueError(f"WarpX.input.species.distribution-type is invalid value `{distribution}`")
+        if not layout in self.available.species_layouts:
+            raise ValueError(f"WarpX.input.species.layout is invalid value `{layout}`")
+        
+        dist_cls = getattr(pywarpx.picmi, f"{distribution}Distribution")
+
+        dist_params = []
+        if distribution == "GaussianBunch":
+            self._validate_inputs(["n_physical_particles", "rms_bunch_size"], species_config, "species.")
+            dist_params = ["n_physical_particles", "rms_bunch_size", "rms_velocity", "centroid_position", "centroid_velocity", "velocity_divergence", "warpx_do_symmetrize", "warpx_symmetrization_order"]
+        elif distribution == "Uniform":
+            self._validate_inputs(["density"], species_config, "species.")
+            dist_params = ["density", "lower_bound", "upper_bound", "rms_velocity", "directed_velocity", "fill_in"]
+        elif distribution == "Analytic":
+            self._validate_inputs(["density_expression"], species_config, "species.")
+            dist_params = ["density_expression", "momentum_expressions", "momentum_spread_expressions", "lower_bound", "upper_bound", "rms_velocity", "directed_velocity", "fill_in", "warpx_density_min", "warpx_density_max", "warpx_momentum_spread_expressions"]
+        elif distribution == "UniformFlux":
+            self._validate_inputs(["flux", "flux_normal_axis", "surface_flux_position", "flux_direction"], species_config, "species.")
+            dist_params = ["flux", "flux_normal_axis", "surface_flux_position", "flux_direction", "lower_bound", "upper_bound", "rms_velocity", "directed_velocity", "flux_tmin", "flux_tmax", "gaussian_flux_momentum_distribution", "warpx_inject_from_embedded_boundary"]
+        elif distribution == "AnalyticFlux":
+            self._validate_inputs(["flux", "flux_normal_axis", "surface_flux_position", "flux_direction"], species_config, "species.")
+            dist_params = ["flux", "flux_normal_axis", "surface_flux_position", "flux_direction", "lower_bound", "upper_bound", "rms_velocity", "directed_velocity", "flux_tmin", "flux_tmax", "gaussian_flux_momentum_distribution", "warpx_inject_from_embedded_boundary"]
+        elif distribution == "ParticleList":
+            dist_params = ["x", "y", "z", "ux", "uy", "uz", "weight"]
+        elif distribution == "FromFile":
+            self._validate_inputs(["file_path"], species_config, "species.")
+            dist_params = ["file_path"]
+
+        dist_kwargs = {k: species_config[k] for k in dist_params if k in species_config}
+
+        if layout == "Gridded":
+            layout_params = ["n_macroparticle_per_cell"]
+            layout_kwargs = {k: species_config[k] for k in layout_params if k in species_config}
+            layout_cls = pywarpx.picmi.GriddedLayout(grid=self._grid, **layout_kwargs)
+        elif layout == "PseudoRandom":
+            layout_params = ["n_macroparticles", "n_macroparticles_per_cell", "seed"]
+            layout_kwargs = {k: species_config[k] for k in layout_params if k in species_config}
+            layout_cls = pywarpx.picmi.PseudoRandomLayout(grid=self._grid, **layout_kwargs)
+
+        species_params = ["particle_type", "name", "charge_state", "charge", "mass", "particle_shape", "density_scale", "method", "warpx_add_int_attributes", "warpx_add_real_attributes", "warpx_do_not_deposit", "warpx_do_not_gather", "warpx_do_not_push", "warpx_do_resampling", "warpx_do_temperature_deposition", "warpx_radial_numpercell_power", "warpx_random_theta", "warpx_reflection_model_eb", "warpx_reflection_model_xhi", "warpx_reflection_model_xlo", "warpx_reflection_model_yhi", "warpx_reflection_model_ylo", "warpx_reflection_model_zhi", "warpx_reflection_model_zlo", "warpx_resampling_algorithm", "warpx_resampling_min_ppc", "warpx_save_particles_at_eb", "warpx_save_particles_at_xhi", "warpx_save_particles_at_xlo", "warpx_save_particles_at_yhi", "warpx_save_particles_at_ylo", "warpx_save_particles_at_zhi", "warpx_save_particles_at_zlo", "warpx_save_previous_position", "warpx_self_fields_max_iters", "warpx_self_fields_verbosity"]
+
+        allowed = set(species_params) | set(dist_params) | set(layout_params) | {"distribution-type", "layout", "initialize_self_field"}
+        for k in species_config:
+            if k not in allowed:
+                raise ValueError(f"Unknown attribute WarpX.inputs.species.{k}")
+
+        kwargs = {k: species_config[k] for k in species_params if k in species_config}
+        self._sim.add_species(
+            pywarpx.picmi.Species(initial_distribution=dist_cls(**dist_kwargs), **kwargs),
+            layout=layout_cls,
+            initialize_self_field=species_config["initialize_self_field"] if "initialize_self_field" in species_config else None
+        )
 
     def _build_collisions(self, collison_config):
-        pass
-
-    def _build_distribution(self, dist_config):
         pass
 
     def _build_evolve_scheme(self, es_config):
