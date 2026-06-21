@@ -44,6 +44,7 @@ class WarpX(Base):
         super().__init__(input_file=input_file, initial_particles=initial_particles, verbose=verbose, timeout=timeout)
         
         self._diag_dir = None
+        self._outputs = {}
         self._grid = None
         self._solver = None
         self._sim = None
@@ -386,10 +387,11 @@ class WarpX(Base):
         h5.create_group("input").attrs["json"] = json.dumps(self._input)
         g_out = h5.create_group("output")
 
-        if self._output is not None:
+        if self._outputs:
             if self._diag_dir is None or not os.path.isdir(self._diag_dir):
                 raise FileNotFoundError("Cannot archive output: diagnostics directory is unknown or missing. Run load_output() first.")
-            g_out.attrs["iterations"] = json.dumps([int(i) for i in self._output.iterations])
+            iters = sorted({int(i) for ts in self._outputs.values() for i in ts.iterations})
+            g_out.attrs["iterations"] = json.dumps(iters)
             g_files = g_out.create_group("files")
             for root, _, files in os.walk(self._diag_dir):
                 for name in files:
@@ -403,8 +405,6 @@ class WarpX(Base):
         return h5
 
     def load_archive(self, h5, configure=True):
-        from openpmd_viewer import OpenPMDTimeSeries
-
         if isinstance(h5, str):
             h5 = h5py.File(h5, "r")
 
@@ -415,20 +415,20 @@ class WarpX(Base):
         self._path = tempfile.mkdtemp(prefix="warpx_archive_")
 
         self._output = None
+        self._outputs = {}
         if "output" in h5 and "files" in h5["output"]:
-            diag_dir = os.path.join(self._path, "diags", "diag1")
+            diags_dir = os.path.join(self._path, "diags")
             g_files = h5["output"]["files"]
 
             def _restore(name, obj):
                 if isinstance(obj, h5py.Dataset):
-                    dest = os.path.join(diag_dir, name)
+                    dest = os.path.join(diags_dir, name)
                     os.makedirs(os.path.dirname(dest), exist_ok=True)
                     with open(dest, "wb") as f:
                         f.write(obj[()].astype("uint8").tobytes())
 
             g_files.visititems(_restore)
-            self._diag_dir = diag_dir
-            self._output = OpenPMDTimeSeries(diag_dir)
+            self.load_output()  # auto-discover every restored series
 
         if configure: self.configure()
         self.vprint("Loaded WarpX archive")
@@ -436,21 +436,50 @@ class WarpX(Base):
     def load_output(self, diag_dir=None):
         from openpmd_viewer import OpenPMDTimeSeries
 
-        if diag_dir is None:
-            diag_dir = os.path.join(self._path, "diags", "diag1")
-        if not os.path.isdir(diag_dir):
-          raise FileNotFoundError(f"No WarpX diagnostics found at {diag_dir}")
-        self._diag_dir = diag_dir
-        self._output = OpenPMDTimeSeries(diag_dir)
-        self.vprint(f"Loaded {len(self._output.iterations)} diagnostic dumps")
-        return self._output
+        if diag_dir is not None:
+            candidates = {os.path.basename(os.path.normpath(diag_dir)): diag_dir}
+        else:
+            diags = os.path.join(self._path, "diags")
+            if not os.path.isdir(diags):
+                raise FileNotFoundError(f"No WarpX diagnostics directory found at {diags}")
+            candidates = {name: os.path.join(diags, name) for name in sorted(os.listdir(diags)) if os.path.isdir(os.path.join(diags, name))}
+
+        self._outputs = {}
+        for name, sub in candidates.items():
+            try:
+                self._outputs[name] = OpenPMDTimeSeries(sub)
+            except Exception:
+                continue
+
+        if not self._outputs:
+            raise FileNotFoundError(f"No readable openPMD diagnostics found under {self._path}/diags")
+
+        self._diag_dir = os.path.join(self._path, "diags")
+        self._output = next(iter(self._outputs.values()))
+        self.vprint(f"Loaded {len(self._outputs)} diagnostic series: {sorted(self._outputs)}")
+        return self._outputs
 
     # TODO: replace the remainder of the file from here with human code (below was generated with Claude Opus 4.8)
 
     def _validate_output(self):
-        if self._output is None:
+        if not self._outputs:
             raise RuntimeError("No output loaded; call run() or load_output() first")
-        return self._output
+        return self._outputs
+
+    def _series_for_species(self, species):
+        """Pick the diagnostic series that holds `species` (or the first with any particles)."""
+        series = self._validate_output()
+        with_particles = {nm: ts for nm, ts in series.items() if ts.avail_species}
+        if not with_particles:
+            raise ValueError("No particle species in any WarpX diagnostic series")
+        if species is None:
+            ts = next(iter(with_particles.values()))
+            return ts, ts.avail_species[0]
+        for ts in with_particles.values():
+            if species in (ts.avail_species or []):
+                return ts, species
+        avail = sorted({s for ts in with_particles.values() for s in (ts.avail_species or [])})
+        raise ValueError(f"Unknown species `{species}`; available: {avail}")
 
     def _validate_coord(self, coord, scope="plot2D"):
         allowed = self.available.plot1D.coordinate if scope == "plot1D" else self.available.plot2D.coordinate
@@ -461,13 +490,8 @@ class WarpX(Base):
     def _particle_group(self, species=None, iteration=None, select=None):
         import beamphysics
 
-        ts = self._validate_output()
+        ts, species = self._series_for_species(species)
 
-        if not ts.avail_species: raise ValueError("No particle species in WarpX output")
-        
-        if species is None: species = ts.avail_species[0]
-        elif species not in ts.avail_species: raise ValueError(f"Unknown species `{species}`; available: {ts.avail_species}")
-        
         if iteration is None: iteration = int(ts.iterations[-1])
 
         want = [c for c in ("x", "y", "z", "ux", "uy", "uz", "w", "mass", "charge") if c in ts.avail_record_components[species]]
@@ -510,36 +534,40 @@ class WarpX(Base):
         return beamphysics.ParticleGroup(data=data)
 
     def _parse_field(self, field):
-        ts = self._validate_output()
-        if ts.avail_fields is None: raise ValueError("No field data in WarpX output")
+        # Search every series that carries fields and return the one holding this field,
+        # along with the parsed (name, mode, coord). Returns: (ts, name, mode, coord).
+        series = self._validate_output()
+        with_fields = {nm: ts for nm, ts in series.items() if ts.avail_fields}
+        if not with_fields: raise ValueError("No field data in any WarpX diagnostic series")
 
-        avail = {a.lower(): a for a in ts.avail_fields}
+        for ts in with_fields.values():
+            avail = {a.lower(): a for a in ts.avail_fields}
 
-        def is_vector(name): return ts.fields_metadata[name]["type"] == "vector"
+            def is_vector(name): return ts.fields_metadata[name]["type"] == "vector"
 
-        if field.lower() in avail:
-            name = avail[field.lower()]
-            # a bare vector name (E/B/J) is treated as its magnitude
-            return (name, "mag", None) if is_vector(name) else (name, "scalar", None)
+            if field.lower() in avail:
+                name = avail[field.lower()]
+                # a bare vector name (E/B/J) is treated as its magnitude
+                return (ts, name, "mag", None) if is_vector(name) else (ts, name, "scalar", None)
 
-        for suffix in ("mag", "theta", "x", "y", "z", "r", "t"):
-            base = field[:-len(suffix)]
-            if field.endswith(suffix) and base.lower() in avail:
-                name = avail[base.lower()]
-                if not is_vector(name): raise ValueError(f"Field `{field}` looks like a component of `{name}`, but `{name}` is a scalar field — use it without a component suffix")
-                if suffix == "mag": return name, "mag", None
-                coord = "t" if suffix == "theta" else suffix   # openPMD names the azimuth `t`
-                
-                geom = ts.fields_metadata[name]["geometry"]
-                valid = {"x", "y", "z", "r", "t"} if geom == "thetaMode" else {"x", "y", "z"}
-                if coord not in valid: raise ValueError(f"Field `{field}` (component '{coord}') is not valid for {geom} geometry; valid components: {sorted(valid)}")
+            for suffix in ("mag", "theta", "x", "y", "z", "r", "t"):
+                base = field[:-len(suffix)]
+                if field.endswith(suffix) and base.lower() in avail:
+                    name = avail[base.lower()]
+                    if not is_vector(name): raise ValueError(f"Field `{field}` looks like a component of `{name}`, but `{name}` is a scalar field — use it without a component suffix")
+                    if suffix == "mag": return ts, name, "mag", None
+                    coord = "t" if suffix == "theta" else suffix   # openPMD names the azimuth `t`
 
-                return name, "component", coord
-            
-        raise ValueError(f"Unknown field `{field}`; expected one of {self.available.fields.list} (present in output: {avail})")
+                    geom = ts.fields_metadata[name]["geometry"]
+                    valid = {"x", "y", "z", "r", "t"} if geom == "thetaMode" else {"x", "y", "z"}
+                    if coord not in valid: raise ValueError(f"Field `{field}` (component '{coord}') is not valid for {geom} geometry; valid components: {sorted(valid)}")
 
-    def _field_plane(self, field, coord, x, y, iteration, theta, m):
-        ts = self._validate_output()
+                    return ts, name, "component", coord
+
+        present = sorted({a for ts in with_fields.values() for a in ts.avail_fields})
+        raise ValueError(f"Unknown field `{field}`; expected one of {self.available.fields.list} (present in output: {present})")
+
+    def _field_plane(self, ts, field, coord, x, y, iteration, theta, m):
         axes = list(ts.fields_metadata[field]["axis_labels"])
         for ax in (x, y):
             if ax not in axes:
@@ -553,10 +581,9 @@ class WarpX(Base):
         return F, getattr(info, x), getattr(info, y)
 
     def plot_fields(self, field, x, y, *args, iteration=None, theta=0.0, m="all", ax=None, **kwargs):
-        ts = self._validate_output()
+        ts, name, mode, coord = self._parse_field(field)
         if iteration is None:
             iteration = int(ts.iterations[-1])
-        name, mode, coord = self._parse_field(field)
 
         if ax is None:
             _, ax = plt.subplots()
@@ -566,12 +593,12 @@ class WarpX(Base):
             vec_coords = ["r", "t", "z"] if geom == "thetaMode" else ["x", "y", "z"]
             F = None
             for c in vec_coords:
-                Fc, xc, yc = self._field_plane(name, c, x, y, iteration, theta, m)
+                Fc, xc, yc = self._field_plane(ts, name, c, x, y, iteration, theta, m)
                 F = Fc ** 2 if F is None else F + Fc ** 2
             F = np.sqrt(F)
             label = f"|{name}|"
         else:  # 'component' or 'scalar'
-            F, xc, yc = self._field_plane(name, coord, x, y, iteration, theta, m)
+            F, xc, yc = self._field_plane(ts, name, coord, x, y, iteration, theta, m)
             label = field
         extent = [xc[0], xc[-1], yc[0], yc[-1]]
         im = ax.imshow(F, extent=extent, origin="lower", aspect="auto", **kwargs)
@@ -587,10 +614,9 @@ class WarpX(Base):
         if x not in self.available.plot1D.coordinate:
             raise ValueError(f"Unknown slice coordinate `{x}`; expected one of {self.available.plot1D.coordinate}")
         stat = self._parse_stat(y)
-        ts = self._validate_output()
 
         if x == "t":
-            if species is not None and species not in (ts.avail_species or []): raise ValueError(f"Unknown species `{species}`; available: {ts.avail_species}")
+            ts, species = self._series_for_species(species)
 
             times, yvals = [], []
             for it, t in zip(ts.iterations, ts.t):
