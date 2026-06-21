@@ -9,6 +9,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
+import re
 import yaml
 __all__ = ["WarpX"]
 
@@ -53,7 +54,18 @@ class WarpX(Base):
 
         if not input_file is None:
             with open(input_file, 'r') as f:
-                self._input = yaml.safe_load(f)
+                yaml_loader = yaml.SafeLoader
+                yaml_loader.add_implicit_resolver(
+                    u'tag:yaml.org,2002:float',
+                    re.compile(u'''^(?:
+                    [-+]?(?:[0-9][0-9_]*)\\.[0-9_]*(?:[eE][-+]?[0-9]+)?
+                    |[-+]?(?:[0-9][0-9_]*)(?:[eE][-+]?[0-9]+)
+                    |\\.[0-9_]+(?:[eE][-+][0-9]+)?
+                    |[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\\.[0-9_]*
+                    |[-+]?\\.(?:inf|Inf|INF)
+                    |\\.(?:nan|NaN|NAN))$''', re.X),
+                    list(u'-+0123456789.'))
+                self._input = yaml.load(f, Loader=yaml_loader)
 
     def _validate_inputs(self, req_inputs, inputs=None, loc=""):
         if inputs == None:
