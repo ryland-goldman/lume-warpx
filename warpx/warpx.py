@@ -190,18 +190,18 @@ class WarpX(Base):
             raise ValueError(f"WarpX.input.diagnostics.diagnostic_type is invalid value `{diag_type}`")
         
         diag_cls = getattr(pywarpx.picmi, f"{diag_type}Diagnostic")
-        applied_kwargs = {}
+        applied_kwargs = {"write_dir": os.path.join(self._path, "diags")}
         if diag_type == "Particle":
             self._validate_inputs(["period"], diag_config, "diagnostics.")
-            diag_params = ["period", "species", "data_list", "write_dir", "step_min", "step_max", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_random_fraction", "warpx_uniform_stride", "warpx_plot_filter_function", "warpx_dump_last_timestep", "warpx_verbose"]
+            diag_params = ["period", "species", "data_list", "step_min", "step_max", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_random_fraction", "warpx_uniform_stride", "warpx_plot_filter_function", "warpx_dump_last_timestep", "warpx_verbose"]
         elif diag_type == "Field" or diag_type == "ElectrostaticField":
             self._validate_inputs(["period"], diag_config, "diagnostics.")
             applied_kwargs["grid"] = self._grid
-            diag_params = ["period", "data_list", "write_dir", "step_min", "step_max", "number_of_cells", "lower_bound", "upper_bound", "parallelio", "name", "warpx_plot_raw_fields", "warpx_plot_raw_fields_guards", "warpx_plot_finepatch", "warpx_plot_crsepatch", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_dump_rz_modes", "warpx_dump_last_timestep", "warpx_particle_fields_to_plot", "warpx_particle_fields_species", "warpx_verbose"]
+            diag_params = ["period", "data_list", "step_min", "step_max", "number_of_cells", "lower_bound", "upper_bound", "parallelio", "name", "warpx_plot_raw_fields", "warpx_plot_raw_fields_guards", "warpx_plot_finepatch", "warpx_plot_crsepatch", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_dump_rz_modes", "warpx_dump_last_timestep", "warpx_particle_fields_to_plot", "warpx_particle_fields_species", "warpx_verbose"]
         elif diag_type == "TimeAveragedField":
             self._validate_inputs(["period"], diag_config, "diagnostics.")
             applied_kwargs["grid"] = self._grid
-            diag_params = ["period", "data_list", "write_dir", "step_min", "step_max", "number_of_cells", "lower_bound", "upper_bound", "parallelio", "name", "warpx_plot_raw_fields", "warpx_plot_raw_fields_guards", "warpx_plot_finepatch", "warpx_plot_crsepatch", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_dump_rz_modes", "warpx_dump_last_timestep", "warpx_particle_fields_to_plot", "warpx_particle_fields_species", "warpx_verbose", "warpx_time_average_mode", "warpx_average_period_steps", "warpx_average_period_time", "warpx_average_start_step"]
+            diag_params = ["period", "data_list", "step_min", "step_max", "number_of_cells", "lower_bound", "upper_bound", "parallelio", "name", "warpx_plot_raw_fields", "warpx_plot_raw_fields_guards", "warpx_plot_finepatch", "warpx_plot_crsepatch", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_dump_rz_modes", "warpx_dump_last_timestep", "warpx_particle_fields_to_plot", "warpx_particle_fields_species", "warpx_verbose", "warpx_time_average_mode", "warpx_average_period_steps", "warpx_average_period_time", "warpx_average_start_step"]
         elif diag_type == "Reduced":
             self._validate_inputs(["period","reduced_type"], diag_config, "diagnostics.")
             applied_kwargs["diag_type"] = diag_config["reduced_type"]
@@ -209,11 +209,11 @@ class WarpX(Base):
         elif diag_type == "LabFrameParticle":
             self._validate_inputs(["num_snapshots","dt_snapshots"], diag_config, "diagnostics.")
             applied_kwargs["grid"] = self._grid
-            diag_params = ["num_snapshots", "dt_snapshots", "data_list", "time_start", "species", "write_dir", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_verbose"]
+            diag_params = ["num_snapshots", "dt_snapshots", "data_list", "time_start", "species", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_verbose"]
         elif diag_type == "LabFrameField":
             self._validate_inputs(["num_snapshots","dt_snapshots"], diag_config, "diagnostics.")
             applied_kwargs["grid"] = self._grid
-            diag_params = ["num_snapshots", "dt_snapshots", "data_list", "z_subsampling", "time_start", "write_dir", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_lower_bound", "warpx_upper_bound", "warpx_verbose"]
+            diag_params = ["num_snapshots", "dt_snapshots", "data_list", "z_subsampling", "time_start", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_lower_bound", "warpx_upper_bound", "warpx_verbose"]
 
         kwargs = {k: diag_config[k] for k in diag_params if k in diag_config} | applied_kwargs
         self._sim.add_diagnostic(diag_cls(**kwargs))
