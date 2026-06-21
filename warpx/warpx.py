@@ -293,7 +293,7 @@ class WarpX(Base):
         self._sim.add_applied_field(field_cls(**kwargs))
 
     def _build_laser(self, laser_config):
-        pass
+        raise NotImplementedError
 
     def _build_species(self, species_config):
         self._validate_inputs(["distribution-type","layout"],species_config,"species.")
@@ -356,19 +356,19 @@ class WarpX(Base):
         )
 
     def _build_collisions(self, collison_config):
-        pass
+        raise NotImplementedError
 
     def _build_evolve_scheme(self, es_config):
-        pass
+        raise NotImplementedError
 
     def _build_embedded_boundary(self, eb_config):
-        pass
+        raise NotImplementedError
 
     def _build_smoother(self, smoother_config):
-        pass
+        raise NotImplementedError
 
     def _build_preconditioner(self, pc_config):
-        pass
+        raise NotImplementedError
 
     def run(self):
         if not self._configured:
