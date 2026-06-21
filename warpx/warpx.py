@@ -11,6 +11,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
+import yaml
 __all__ = ["WarpX"]
 
 class WarpX(Base):
@@ -40,10 +41,22 @@ class WarpX(Base):
                           "px","py","pz","pr","ptheta",
                           "kinetic_energy","energy","gamma","beta","p","xp","yp","Lz"]
 
+    def __init__(self, input_file=None, *, initial_particles=None, verbose=False, timeout=None, workdir=None, path=None, **kwargs):
+        super().__init__(input_file=input_file, initial_particles=initial_particles, verbose=verbose, timeout=timeout)
+        
+        self._diag_dir = None
+        self._grid = None
+        self._solver = None
+        self._sim = None
+
+        if not input_file is None:
+            with open(input_file, 'r') as f:
+                self._input = yaml.safe_load(f)
+
     def _validate_inputs(self, req_inputs, inputs=None, loc=""):
         if inputs == None:
             for input in req_inputs:
-                if not input in self.inputs:
+                if not input in self._input:
                     raise ValueError(f"Required field WarpX.inputs.{input} not specified")
         else:
             for input in req_inputs:
@@ -51,8 +64,8 @@ class WarpX(Base):
                     raise ValueError(f"Required field WarpX.inputs.{loc}{input} not specified")
 
     def configure(self):
-        if not self.inputs:
-            self.error = True
+        if not self._input:
+            self._error = True
             raise ValueError("WarpX.inputs is empty; nothing to configure")
 
         if self.path is None:
@@ -60,15 +73,15 @@ class WarpX(Base):
         os.makedirs(self.path, exist_ok=True)
 
         self._validate_inputs(["grid","solver","simulation"])
-        grid_config = self.inputs["grid"]
-        solver_config = self.inputs["solver"]
-        sim_config = self.inputs["simulation"]
+        grid_config = self._input["grid"]
+        solver_config = self._input["solver"]
+        sim_config = self._input["simulation"]
         
         self._build_grid(grid_config)
         self._build_solver(solver_config)
         self._build_sim(sim_config)
 
-        self.configured = True
+        self._configured = True
         self.vprint(f"WarpX configured; diagnostics saved to {self.path}")
 
     def _build_grid(self, grid_config):
@@ -155,19 +168,19 @@ class WarpX(Base):
             if k not in sim_params:
                 raise ValueError(f"Unknown attribute WarpX.inputs.simulation.{k}")
         kwargs = {k: sim_config[k] for k in sim_params if k in sim_config}
-        self._sim = pywarpx.picmi.Simulation(solver=self._solver, verbose=int(self.verbose), **kwargs)
+        self._sim = pywarpx.picmi.Simulation(solver=self._solver, verbose=int(self._verbose), **kwargs)
     
     def run(self):
-        if not self.configured:
+        if not self._configured:
             self.configure()
 
         t0 = time.time()
         self.vprint("Running WarpX...")
         try:
             self._sim.step()
-            self.finished = True
+            self._finished = True
         except Exception:
-            self.error = True
+            self._error = True
             raise
         finally:
             self.vprint(f"WarpX run took {time.time() - t0:.1f} s")
@@ -181,15 +194,15 @@ class WarpX(Base):
             h5 = h5py.File(h5, "w")
 
         h5.attrs["fingerprint"] = self.fingerprint()
-        h5.attrs["finished"] = self.finished
+        h5.attrs["finished"] = self._finished
 
-        h5.create_group("input").attrs["json"] = json.dumps(self.inputs)
+        h5.create_group("input").attrs["json"] = json.dumps(self._input)
         g_out = h5.create_group("output")
 
-        if self.output is not None:
+        if self._output is not None:
             if self._diag_dir is None or not os.path.isdir(self._diag_dir):
                 raise FileNotFoundError("Cannot archive output: diagnostics directory is unknown or missing. Run load_output() first.")
-            g_out.attrs["iterations"] = json.dumps([int(i) for i in self.output.iterations])
+            g_out.attrs["iterations"] = json.dumps([int(i) for i in self._output.iterations])
             g_files = g_out.create_group("files")
             for root, _, files in os.walk(self._diag_dir):
                 for name in files:
@@ -206,13 +219,13 @@ class WarpX(Base):
         if isinstance(h5, str):
             h5 = h5py.File(h5, "r")
 
-        self.inputs = json.loads(h5["input"].attrs["json"])
-        self.finished = bool(h5.attrs.get("finished", False))
-        self.configured = False
-        self.error = False
+        self._input = json.loads(h5["input"].attrs["json"])
+        self._finished = bool(h5.attrs.get("finished", False))
+        self._configured = False
+        self._error = False
         self.path = tempfile.mkdtemp(prefix="warpx_archive_")
 
-        self.output = None
+        self._output = None
         if "output" in h5 and "files" in h5["output"]:
             diag_dir = os.path.join(self.path, "diags", "diag1")
             g_files = h5["output"]["files"]
@@ -226,7 +239,7 @@ class WarpX(Base):
 
             g_files.visititems(_restore)
             self._diag_dir = diag_dir
-            self.output = OpenPMDTimeSeries(diag_dir)
+            self._output = OpenPMDTimeSeries(diag_dir)
 
         if configure: self.configure()
         self.vprint("Loaded WarpX archive")
@@ -237,16 +250,16 @@ class WarpX(Base):
         if not os.path.isdir(diag_dir):
           raise FileNotFoundError(f"No WarpX diagnostics found at {diag_dir}")
         self._diag_dir = diag_dir
-        self.output = OpenPMDTimeSeries(diag_dir)
-        self.vprint(f"Loaded {len(self.output.iterations)} diagnostic dumps")
-        return self.output
+        self._output = OpenPMDTimeSeries(diag_dir)
+        self.vprint(f"Loaded {len(self._output.iterations)} diagnostic dumps")
+        return self._output
 
     # TODO: replace the remainder of the file from here with human code (below was generated with Claude Opus 4.8)
 
     def _validate_output(self):
-        if self.output is None:
+        if self._output is None:
             raise RuntimeError("No output loaded; call run() or load_output() first")
-        return self.output
+        return self._output
 
     def _validate_coord(self, coord, scope="plot2D"):
         allowed = self.available.plot1D.coordinate if scope == "plot1D" else self.available.plot2D.coordinate
