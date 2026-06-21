@@ -484,6 +484,11 @@ class WarpX(Base):
             except Exception:
                 warnings.warn(f"Could not determine mass/charge for species `{species}`; momentum and charge scaling may be wrong")
 
+        if mass_eV is not None and str(species) not in beamphysics.species.MASS_OF:
+            beamphysics.species.MASS_OF[str(species)] = mass_eV
+        if charge_C is not None and str(species) not in beamphysics.species.CHARGE_OF:
+            beamphysics.species.CHARGE_OF[str(species)] = charge_C
+
         if mass_eV is not None and mass_eV != 0.0:  # massive: openpmd_viewer momenta are gamma*beta
             px, py, pz = ux * mass_eV, uy * mass_eV, uz * mass_eV
         else:        # massless (or unknown mass): momenta are already in kg*m/s
