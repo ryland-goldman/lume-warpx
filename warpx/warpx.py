@@ -18,7 +18,7 @@ class WarpX(Base):
         grid_type = ["Cartesian3DGrid", "Cartesian2DGrid", "Cartesian1DGrid", "CylindricalGrid"]
         solver_type = ["EM_Yee","EM_CKC","EM_Lehe","EM_PSTD","EM_PSATD","EM_GPSTD","EM_DS","EM_ECT","ES_FFT_LF","ES_FFT_EMS","ES_FFT_EP","ES_FFT_Rel","ES_MLMG_LF","ES_MLMG_EMS","ES_MLMG_EP","ES_MLMG_Rel","Hybrid_RK4","Hybrid_RKF45"]
         diagnostics = ["Particle","Field","TimeAveragedField","ElectrostaticField","Reduced","LabFrameParticle","LabFrameField"]
-        applied_fields = ["AnalyticInitial","ConstantApplied","AnalyticApplied","LoadInitial","PlasmaLens","Mirror"]
+        applied_fields = ["AnalyticInitial","ConstantApplied","AnalyticApplied","FromFile","PlasmaLens","Mirror"]
         laser_pulses = ["Gaussian","Analytic"]
 
         class fields:
@@ -225,22 +225,24 @@ class WarpX(Base):
             "AnalyticInitial": "AnalyticInitialField",
             "ConstantApplied": "ConstantAppliedField",
             "AnalyticApplied": "AnalyticAppliedField",
-            "LoadInitial": "LoadInitialField",
+            "FromFile": "LoadInitialField",
             "PlasmaLens": "PlasmaLens",
             "Mirror": "Mirror",
         }
         field_cls = getattr(pywarpx.picmi, picmi_fields[field_type])
 
         field_params = []
+        applied_kwargs = {}
         if field_type == "AnalyticInitial":
             field_params = ["Ex_expression", "Ey_expression", "Ez_expression", "Bx_expression", "By_expression", "Bz_expression", "lower_bound", "upper_bound", "warpx_maxlevel_extEMfield_init", "warpx_do_initial_div_cleaning", "warpx_projection_div_cleaner_atol", "warpx_projection_div_cleaner_rtol"]
         elif field_type == "ConstantApplied":
             field_params = ["Ex", "Ey", "Ez", "Bx", "By", "Bz", "lower_bound", "upper_bound"]
         elif field_type == "AnalyticApplied":
             field_params = ["Ex_expression", "Ey_expression", "Ez_expression", "Bx_expression", "By_expression", "Bz_expression", "lower_bound", "upper_bound"]
-        elif field_type == "LoadInitial":
-            self._validate_inputs(["read_fields_from_path"], field_config, "fields.")
-            field_params = ["read_fields_from_path", "load_B", "load_E", "warpx_do_initial_div_cleaning", "warpx_projection_div_cleaner_atol", "warpx_projection_div_cleaner_rtol"]
+        elif field_type == "FromFile":
+            self._validate_inputs(["path"], field_config, "fields.")
+            applied_kwargs["read_fields_from_path"] = field_config["path"]
+            field_params = ["load_B", "load_E", "warpx_do_initial_div_cleaning", "warpx_projection_div_cleaner_atol", "warpx_projection_div_cleaner_rtol"]
         elif field_type == "PlasmaLens":
             self._validate_inputs(["period", "starts", "lengths"], field_config, "fields.")
             field_params = ["period", "starts", "lengths", "strengths_E", "strengths_B"]
@@ -253,7 +255,7 @@ class WarpX(Base):
                 if k == "field_type": continue
                 raise ValueError(f"Unknown attribute WarpX.inputs.fields.{k}")
 
-        kwargs = {k: field_config[k] for k in field_params if k in field_config}
+        kwargs = {k: field_config[k] for k in field_params if k in field_config} | applied_kwargs
         self._sim.add_applied_field(field_cls(**kwargs))
 
     def _build_laser(self, laser_config):
