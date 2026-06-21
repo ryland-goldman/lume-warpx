@@ -17,6 +17,9 @@ class WarpX(Base):
     class available:
         grid_type = ["Cartesian3DGrid", "Cartesian2DGrid", "Cartesian1DGrid", "CylindricalGrid"]
         solver_type = ["EM_Yee","EM_CKC","EM_Lehe","EM_PSTD","EM_PSATD","EM_GPSTD","EM_DS","EM_ECT","ES_FFT_LF","ES_FFT_EMS","ES_FFT_EP","ES_FFT_Rel","ES_MLMG_LF","ES_MLMG_EMS","ES_MLMG_EP","ES_MLMG_Rel","Hybrid_RK4","Hybrid_RKF45"]
+        diagnostics = ["Particle","Field","TimeAveragedField","ElectrostaticField","Reduced","LabFrameParticle","LabFrameField"]
+        applied_fields = ["AnalyticInitial","ConstantApplied","AnalyticApplied","LoadInitial","PlasmaLens","Mirror"]
+        laser_pulses = ["Gaussian","Analytic"]
 
         class fields:
             list = ["E","Ex","Ey","Ez","Er","Etheta","Emag",
@@ -76,6 +79,18 @@ class WarpX(Base):
         self._build_grid(grid_config)
         self._build_solver(solver_config)
         self._build_sim(sim_config)
+        
+        if "fields" in self._input:
+            for f in self._input["fields"]: self._build_field(f)
+        
+        if "lasers" in self._input:
+            for l in self._input["lasers"]: self._build_laser(l)
+
+        if "species" in self._input:
+            for s in self._input["species"]: self._build_species(s)
+
+        if "diagnostics" in self._input:
+            for d in self._input["diagnostics"]: self._build_diag(d)
 
         self._configured = True
         self.vprint(f"WarpX configured; diagnostics saved to {self._path}")
@@ -166,10 +181,42 @@ class WarpX(Base):
         kwargs = {k: sim_config[k] for k in sim_params if k in sim_config}
         self._sim = pywarpx.picmi.Simulation(solver=self._solver, verbose=int(self._verbose), **kwargs)
 
-    def _build_diags(self, diag_config):
-        pass
+    def _build_diag(self, diag_config):
+        self._validate_inputs(["diagnostic_type"], diag_config, "diagnostics.")
+        diag_type = diag_config["diagnostic_type"]
+        if not diag_type in self.available.diagnostics:
+            raise ValueError(f"WarpX.input.diagnostics.diagnostic_type is invalid value `{diag_type}`")
+        
+        diag_cls = getattr(pywarpx.picmi, f"{diag_type}Diagnostic")
+        applied_kwargs = {}
+        if diag_type == "Particle":
+            self._validate_inputs(["period"], diag_config, "diagnostics.")
+            diag_params = ["period", "species", "data_list", "write_dir", "step_min", "step_max", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_random_fraction", "warpx_uniform_stride", "warpx_plot_filter_function", "warpx_dump_last_timestep", "warpx_verbose"]
+        elif diag_type == "Field" or diag_type == "ElectrostaticField":
+            self._validate_inputs(["period"], diag_config, "diagnostics.")
+            applied_kwargs["grid"] = self._grid
+            diag_params = ["period", "data_list", "write_dir", "step_min", "step_max", "number_of_cells", "lower_bound", "upper_bound", "parallelio", "name", "warpx_plot_raw_fields", "warpx_plot_raw_fields_guards", "warpx_plot_finepatch", "warpx_plot_crsepatch", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_dump_rz_modes", "warpx_dump_last_timestep", "warpx_particle_fields_to_plot", "warpx_particle_fields_species", "warpx_verbose"]
+        elif diag_type == "TimeAveragedField":
+            self._validate_inputs(["period"], diag_config, "diagnostics.")
+            applied_kwargs["grid"] = self._grid
+            diag_params = ["period", "data_list", "write_dir", "step_min", "step_max", "number_of_cells", "lower_bound", "upper_bound", "parallelio", "name", "warpx_plot_raw_fields", "warpx_plot_raw_fields_guards", "warpx_plot_finepatch", "warpx_plot_crsepatch", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_dump_rz_modes", "warpx_dump_last_timestep", "warpx_particle_fields_to_plot", "warpx_particle_fields_species", "warpx_verbose", "warpx_time_average_mode", "warpx_average_period_steps", "warpx_average_period_time", "warpx_average_start_step"]
+        elif diag_type == "Reduced":
+            self._validate_inputs(["period","reduced_type"], diag_config, "diagnostics.")
+            applied_kwargs["diag_type"] = diag_config["reduced_type"]
+            diag_params = ["name", "period", "path", "extension", "separator", "species", "bin_number", "bin_max", "bin_min", "normalization", "histogram_function", "filter_function", "bin_max_abs", "bin_max_ord", "bin_min_abs", "bin_min_ord", "bin_number_abs", "bin_number_ord", "histogram_function_abs", "histogram_function_ord", "value_function", "weighting_function", "reduction_type", "probe_geometry", "integrate", "do_moving_window_FP", "x_probe", "y_probe", "z_probe", "interp_order", "resolution", "x1_probe", "y1_probe", "z1_probe", "detector_radius", "target_normal_x", "target_normal_y", "target_normal_z", "target_up_x", "target_up_y", "target_up_z"]
+        elif diag_type == "LabFrameParticle":
+            self._validate_inputs(["num_snapshots","dt_snapshots"], diag_config, "diagnostics.")
+            applied_kwargs["grid"] = self._grid
+            diag_params = ["num_snapshots", "dt_snapshots", "data_list", "time_start", "species", "write_dir", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_verbose"]
+        elif diag_type == "LabFrameField":
+            self._validate_inputs(["num_snapshots","dt_snapshots"], diag_config, "diagnostics.")
+            applied_kwargs["grid"] = self._grid
+            diag_params = ["num_snapshots", "dt_snapshots", "data_list", "z_subsampling", "time_start", "write_dir", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_lower_bound", "warpx_upper_bound", "warpx_verbose"]
 
-    def _build_fields(self, field_config):
+        kwargs = {k: diag_config[k] for k in diag_params if k in diag_config} | applied_kwargs
+        self._sim.add_diagnostic(diag_cls(**kwargs))
+
+    def _build_field(self, field_config):
         pass
 
     def _build_laser(self, laser_config):
