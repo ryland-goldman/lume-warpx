@@ -190,7 +190,7 @@ class WarpX(Base):
             raise ValueError(f"WarpX.input.diagnostics.diagnostic_type is invalid value `{diag_type}`")
         
         diag_cls = getattr(pywarpx.picmi, f"{diag_type}Diagnostic")
-        applied_kwargs = {"write_dir": os.path.join(self._path, "diags")}
+        applied_kwargs = {}
         if diag_type == "Particle":
             self._validate_inputs(["period"], diag_config, "diagnostics.")
             diag_params = ["period", "species", "data_list", "step_min", "step_max", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_file_min_digits", "warpx_random_fraction", "warpx_uniform_stride", "warpx_plot_filter_function", "warpx_dump_last_timestep", "warpx_verbose"]
@@ -205,6 +205,8 @@ class WarpX(Base):
         elif diag_type == "Reduced":
             self._validate_inputs(["period","reduced_type"], diag_config, "diagnostics.")
             applied_kwargs["diag_type"] = diag_config["reduced_type"]
+            if not "path" in diag_config:
+                applied_kwargs["path"] = os.path.join(self._path, "diags")
             diag_params = ["name", "period", "path", "extension", "separator", "species", "bin_number", "bin_max", "bin_min", "normalization", "histogram_function", "filter_function", "bin_max_abs", "bin_max_ord", "bin_min_abs", "bin_min_ord", "bin_number_abs", "bin_number_ord", "histogram_function_abs", "histogram_function_ord", "value_function", "weighting_function", "reduction_type", "probe_geometry", "integrate", "do_moving_window_FP", "x_probe", "y_probe", "z_probe", "interp_order", "resolution", "x1_probe", "y1_probe", "z1_probe", "detector_radius", "target_normal_x", "target_normal_y", "target_normal_z", "target_up_x", "target_up_y", "target_up_z"]
         elif diag_type == "LabFrameParticle":
             self._validate_inputs(["num_snapshots","dt_snapshots"], diag_config, "diagnostics.")
@@ -215,11 +217,13 @@ class WarpX(Base):
             applied_kwargs["grid"] = self._grid
             diag_params = ["num_snapshots", "dt_snapshots", "data_list", "z_subsampling", "time_start", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_lower_bound", "warpx_upper_bound", "warpx_verbose"]
 
-        if not "warpx_format" in diag_config:
-            applied_kwargs["warpx_format"] = "openpmd"
-        if not "warpx_openpmd_backend" in diag_config:
-            applied_kwargs["warpx_openpmd_backend"] = "h5"
-        
+        if not diag_type == "Reduced":
+            applied_kwargs["write_dir"] = os.path.join(self._path, "diags")
+            if not "warpx_format" in diag_config:
+                applied_kwargs["warpx_format"] = "openpmd"
+            if not "warpx_openpmd_backend" in diag_config:
+                applied_kwargs["warpx_openpmd_backend"] = "h5"
+
         kwargs = {k: diag_config[k] for k in diag_params if k in diag_config} | applied_kwargs
 
         if diag_type in ("Particle", "LabFrameParticle") and "species" in kwargs:
