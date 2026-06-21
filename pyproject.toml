@@ -13,14 +13,13 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
 dependencies = [
     "lume-base",
-    "openpmd-api==0.17.0",
-    "openpmd-viewer==1.11.0",
-    "openpmd-beamphysics==0.14.1",
-    "numpy==2.4.6",
+    "openpmd-api",
+    "openpmd-viewer",
+    "openpmd-beamphysics",
+    "numpy",
     "scipy",
     "h5py",
-    "matplotlib",
-    "warpx @ git+https://github.com/BLAST-WarpX/warpx.git"
+    "matplotlib"
   ]
 
 [tool.setuptools.packages.find]

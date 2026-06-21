@@ -2,7 +2,15 @@ from lume.base import Base
 import os
 import time
 import tempfile
-import pywarpx
+try:
+    import pywarpx
+except (ImportError, ModuleNotFoundError):
+    print("==================================================================================")
+    print("|                        Could not find pywarpx install.                         |")
+    print("|         pywarpx is not available on PyPi; you must build from source.          |")
+    print("| See https://warpx.readthedocs.io/en/latest/install/users.html for instructions |")
+    print("==================================================================================")
+    raise
 import scipy.constants
 import json
 import h5py
