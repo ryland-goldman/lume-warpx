@@ -216,6 +216,16 @@ class WarpX(Base):
             diag_params = ["num_snapshots", "dt_snapshots", "data_list", "z_subsampling", "time_start", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_lower_bound", "warpx_upper_bound", "warpx_verbose"]
 
         kwargs = {k: diag_config[k] for k in diag_params if k in diag_config} | applied_kwargs
+
+        if diag_type in ("Particle", "LabFrameParticle") and "species" in kwargs:
+            by_name = {s.name: s for s in self._sim.species}
+            resolved = []
+            for name in kwargs["species"]:
+                if name not in by_name:
+                    raise ValueError(f"WarpX.inputs.diagnostics.species references unknown species `{name}`; defined species: {sorted(by_name)}")
+                resolved.append(by_name[name])
+            kwargs["species"] = resolved
+
         self._sim.add_diagnostic(diag_cls(**kwargs))
 
     def _build_field(self, field_config):
