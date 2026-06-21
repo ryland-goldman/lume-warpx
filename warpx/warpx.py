@@ -3,8 +3,6 @@ import os
 import time
 import tempfile
 import pywarpx
-from openpmd_viewer import OpenPMDTimeSeries
-import beamphysics
 import scipy.constants
 import json
 import h5py
@@ -167,7 +165,7 @@ class WarpX(Base):
                 raise ValueError(f"Unknown attribute WarpX.inputs.simulation.{k}")
         kwargs = {k: sim_config[k] for k in sim_params if k in sim_config}
         self._sim = pywarpx.picmi.Simulation(solver=self._solver, verbose=int(self._verbose), **kwargs)
-    
+        
     def run(self):
         if not self._configured:
             self.configure()
@@ -214,6 +212,8 @@ class WarpX(Base):
         return h5
 
     def load_archive(self, h5, configure=True):
+        from openpmd_viewer import OpenPMDTimeSeries
+
         if isinstance(h5, str):
             h5 = h5py.File(h5, "r")
 
@@ -243,6 +243,8 @@ class WarpX(Base):
         self.vprint("Loaded WarpX archive")
 
     def load_output(self, diag_dir=None):
+        from openpmd_viewer import OpenPMDTimeSeries
+
         if diag_dir is None:
             diag_dir = os.path.join(self._path, "diags", "diag1")
         if not os.path.isdir(diag_dir):
@@ -266,8 +268,10 @@ class WarpX(Base):
         return coord
 
     def _particle_group(self, species=None, iteration=None, select=None):
+        import beamphysics
+
         ts = self._validate_output()
-        
+
         if not ts.avail_species: raise ValueError("No particle species in WarpX output")
         
         if species is None: species = ts.avail_species[0]
