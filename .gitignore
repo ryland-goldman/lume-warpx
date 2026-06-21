@@ -33,3 +33,5 @@ Backtrace*
 warpx_used_inputs
 *.h5
 *.png
+diags/
+examples/**/output/
