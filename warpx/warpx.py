@@ -215,6 +215,11 @@ class WarpX(Base):
             applied_kwargs["grid"] = self._grid
             diag_params = ["num_snapshots", "dt_snapshots", "data_list", "z_subsampling", "time_start", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_lower_bound", "warpx_upper_bound", "warpx_verbose"]
 
+        if not "warpx_format" in diag_config:
+            applied_kwargs["warpx_format"] = "openpmd"
+        if not "warpx_openpmd_backend" in diag_config:
+            applied_kwargs["warpx_openpmd_backend"] = "h5"
+        
         kwargs = {k: diag_config[k] for k in diag_params if k in diag_config} | applied_kwargs
 
         if diag_type in ("Particle", "LabFrameParticle") and "species" in kwargs:
