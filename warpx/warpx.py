@@ -206,7 +206,7 @@ class WarpX(Base):
             self._validate_inputs(["period","reduced_type"], diag_config, "diagnostics.")
             applied_kwargs["diag_type"] = diag_config["reduced_type"]
             if not "path" in diag_config:
-                applied_kwargs["path"] = os.path.join(self._path, "diags")
+                applied_kwargs["path"] = os.path.join(self._path, "diags") + os.sep
             diag_params = ["name", "period", "path", "extension", "separator", "species", "bin_number", "bin_max", "bin_min", "normalization", "histogram_function", "filter_function", "bin_max_abs", "bin_max_ord", "bin_min_abs", "bin_min_ord", "bin_number_abs", "bin_number_ord", "histogram_function_abs", "histogram_function_ord", "value_function", "weighting_function", "reduction_type", "probe_geometry", "integrate", "do_moving_window_FP", "x_probe", "y_probe", "z_probe", "interp_order", "resolution", "x1_probe", "y1_probe", "z1_probe", "detector_radius", "target_normal_x", "target_normal_y", "target_normal_z", "target_up_x", "target_up_y", "target_up_z"]
         elif diag_type == "LabFrameParticle":
             self._validate_inputs(["num_snapshots","dt_snapshots"], diag_config, "diagnostics.")
