@@ -15,10 +15,6 @@ import yaml
 __all__ = ["WarpX"]
 
 class WarpX(Base):
-    _grid = None
-    _solver = None
-    _sim = None
-    _diag_dir = None
 
     class available:
         grid_type = ["Cartesian3DGrid", "Cartesian2DGrid", "Cartesian1DGrid", "CylindricalGrid"]
@@ -48,6 +44,8 @@ class WarpX(Base):
         self._grid = None
         self._solver = None
         self._sim = None
+        self._workdir = workdir
+        self._path = path
 
         if not input_file is None:
             with open(input_file, 'r') as f:
@@ -68,9 +66,9 @@ class WarpX(Base):
             self._error = True
             raise ValueError("WarpX.inputs is empty; nothing to configure")
 
-        if self.path is None:
-            self.path = self.workdir or tempfile.mkdtemp(prefix="warpx_")
-        os.makedirs(self.path, exist_ok=True)
+        if self._path is None:
+            self._path = self._workdir or tempfile.mkdtemp(prefix="warpx_")
+        os.makedirs(self._path, exist_ok=True)
 
         self._validate_inputs(["grid","solver","simulation"])
         grid_config = self._input["grid"]
@@ -82,7 +80,7 @@ class WarpX(Base):
         self._build_sim(sim_config)
 
         self._configured = True
-        self.vprint(f"WarpX configured; diagnostics saved to {self.path}")
+        self.vprint(f"WarpX configured; diagnostics saved to {self._path}")
 
     def _build_grid(self, grid_config):
         self._validate_inputs(["grid_type"], grid_config, "grid.")
@@ -223,11 +221,11 @@ class WarpX(Base):
         self._finished = bool(h5.attrs.get("finished", False))
         self._configured = False
         self._error = False
-        self.path = tempfile.mkdtemp(prefix="warpx_archive_")
+        self._path = tempfile.mkdtemp(prefix="warpx_archive_")
 
         self._output = None
         if "output" in h5 and "files" in h5["output"]:
-            diag_dir = os.path.join(self.path, "diags", "diag1")
+            diag_dir = os.path.join(self._path, "diags", "diag1")
             g_files = h5["output"]["files"]
 
             def _restore(name, obj):
@@ -246,7 +244,7 @@ class WarpX(Base):
 
     def load_output(self, diag_dir=None):
         if diag_dir is None:
-            diag_dir = os.path.join(self.path, "diags", "diag1")
+            diag_dir = os.path.join(self._path, "diags", "diag1")
         if not os.path.isdir(diag_dir):
           raise FileNotFoundError(f"No WarpX diagnostics found at {diag_dir}")
         self._diag_dir = diag_dir
