@@ -407,6 +407,16 @@ class WarpX(Base):
         for path, value in overrides.items():
             self.set(path, value)
 
+    def get(self, path, default=None):
+        keys = path.split("/") if isinstance(path, str) else list(path)
+        node = self._input
+        try:
+            for k in keys:
+                node = node[int(k)] if isinstance(node, list) else node[k]
+        except (KeyError, IndexError, TypeError):
+            return default
+        return node
+
     def _build_collisions(self, collison_config):
         raise NotImplementedError
 

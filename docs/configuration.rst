@@ -127,10 +127,27 @@ A list of applied or initial fields. ``field_type`` selects the kind:
 ``AnalyticInitial``    Initial E/B from analytic expressions
 ``ConstantApplied``    Constant applied E/B
 ``AnalyticApplied``    Applied E/B from analytic expressions
-``FromFile``           Load initial field from a file (``path``)
+``FromFile``           Load **initial** field from a file (``path``)
+``AppliedFromFile``    Load a tabulated **applied** (per-step, particle-gathered) field
+                       from a file (``path``, ``load_E``/``load_B``,
+                       ``warpx_E_time_function``/``warpx_B_time_function``)
 ``PlasmaLens``         Plasma-lens array (``starts``/``lengths``)
 ``Mirror``             Field mirror
 =====================  ============================================
+
+``AppliedFromFile`` maps to ``picmi.LoadAppliedField``: a tabulated map gathered onto
+particles every step, optionally scaled by an AMReX parser ``t``-expression (e.g. an RF
+``cos(omega*t + phi)`` standing wave, or a constant solenoid current).
+
+.. code-block:: yaml
+
+   fields:
+     - field_type: AppliedFromFile
+       path: fields/rf1.h5
+       load_E: true
+       load_B: true
+       warpx_E_time_function: "1.0e5*cos(1.79e10*t + 0.3)"
+       warpx_B_time_function: "1.0e5*sin(1.79e10*t + 0.3)"
 
 .. code-block:: yaml
 
@@ -155,6 +172,10 @@ Distributions (``distribution-type``):
 - ``UniformFlux`` / ``AnalyticFlux`` — surface emission; need ``flux``,
   ``flux_normal_axis``, ``surface_flux_position``, ``flux_direction``
 - ``ParticleList`` — explicit ``x``/``y``/``z``/``ux``/``uy``/``uz``/``weight``
+- ``FromInitialParticles`` — inject the ``WarpX(initial_particles=...)``
+  ``ParticleGroup`` as an explicit ``ParticleList`` (the standard way to seed a beam
+  imported from an upstream stage); optional ``n_seed`` keeps only the first *N*
+  macroparticles (the rest added later by a ``beforestep`` callback)
 - ``FromFile`` — needs ``file_path``
 
 Layouts (``layout``):
@@ -236,6 +257,21 @@ A list of output diagnostics. ``diagnostic_type`` selects the kind:
 
    Unless you override them, non-reduced diagnostics default to
    ``warpx_format: openpmd`` with the ``h5`` backend and are written to
-   ``<path>/diags``. This is what the plotting and archiving helpers expect.
-   For a ``Particle`` / ``LabFrameParticle`` diagnostic, the ``species`` list
-   must reference species names you defined above.
+   ``<path>/diags`` (or an explicit ``write_dir`` if given). This is what the
+   plotting and archiving helpers expect. For a ``Particle`` / ``LabFrameParticle``
+   diagnostic, the ``species`` list must reference species names you defined above.
+
+Runtime overrides and callbacks
+-------------------------------
+
+A static YAML config can be patched before :meth:`configure` so a driver can compute
+values at run time (RF time-function strings, ``max_steps``, diagnostic periods) and read
+constants back instead of duplicating them:
+
+- ``w.get("grid/number_of_cells")`` — read a value by ``/``-separated path (list steps use
+  integer indices); returns ``default`` if the path is missing.
+- ``w.set("simulation/max_steps", 5000)`` / ``w.update({path: value, ...})`` — override.
+- ``w.install_callback("beforestep", fn)`` — register a pywarpx step callback installed for
+  the duration of :meth:`run` (e.g. time-release particle injection).
+- ``w.run(progress="label", log_path=...)`` — drive the run with a tqdm bar, redirecting
+  WarpX's per-step stdout to ``log_path`` (or ``$PIPELINE_LOG_PATH``).
