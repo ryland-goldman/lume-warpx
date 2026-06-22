@@ -159,9 +159,11 @@ This steps the simulation for 10 steps and writes:
 - ``wakefield_Ez_xz.png`` — the longitudinal accelerating field ``Ez`` over the
   ``x``-``z`` plane (slice through ``y = 0``), showing the wake behind the beam.
 - ``phase_space_beam_z_pz.png`` — drive-beam longitudinal phase space
-  (``z`` vs. ``pz``).
-- ``phase_space_plasma_z_pz.png`` — plasma-electron ``z`` vs. ``pz`` phase
-  space, showing the wake response of the background plasma.
+  (``z`` vs. ``pz``); the bunch sits near ``pz ≈ 1.7`` MeV/c.
+- ``current_Jz_xz.png`` — longitudinal current density ``Jz`` over the ``x``-``z``
+  plane, the drive beam's compact current channel that drives the wake. (After
+  only 10 steps the cold background plasma is barely perturbed, so its own phase
+  space is uninformative; the beam current is the clearer companion to ``Ez``.)
 
 The driver script
 ~~~~~~~~~~~~~~~~~~
@@ -175,7 +177,7 @@ The driver script
 
    w.plot_fields("Ez", "x", "z").savefig("wakefield_Ez_xz.png")
    w.plot2D("z", "pz", species="beam").savefig("phase_space_beam_z_pz.png")
-   w.plot2D("z", "pz", species="plasma").savefig("phase_space_plasma_z_pz.png")
+   w.plot_fields("Jz", "x", "z").savefig("current_Jz_xz.png")
 
 Uniform thermal plasma
 ----------------------
