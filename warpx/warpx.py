@@ -27,9 +27,9 @@ class WarpX(Base):
         grid_type = ["Cartesian3DGrid", "Cartesian2DGrid", "Cartesian1DGrid", "CylindricalGrid"]
         solver_type = ["EM_Yee","EM_CKC","EM_Lehe","EM_PSTD","EM_PSATD","EM_GPSTD","EM_DS","EM_ECT","ES_FFT_LF","ES_FFT_EMS","ES_FFT_EP","ES_FFT_Rel","ES_MLMG_LF","ES_MLMG_EMS","ES_MLMG_EP","ES_MLMG_Rel","Hybrid_RK4","Hybrid_RKF45"]
         diagnostics = ["Particle","Field","TimeAveragedField","ElectrostaticField","Reduced","LabFrameParticle","LabFrameField"]
-        applied_fields = ["AnalyticInitial","ConstantApplied","AnalyticApplied","FromFile","PlasmaLens","Mirror"]
+        applied_fields = ["AnalyticInitial","ConstantApplied","AnalyticApplied","FromFile","AppliedFromFile","PlasmaLens","Mirror"]
         laser_pulses = ["Gaussian","Analytic"]
-        species_distributions = ["GaussianBunch","Uniform","Analytic","UniformFlux","AnalyticFlux","ParticleList","FromFile"]
+        species_distributions = ["GaussianBunch","Uniform","Analytic","UniformFlux","AnalyticFlux","ParticleList","FromInitialParticles","FromFile"]
         species_layouts = ["Gridded","PseudoRandom"]
 
         class fields:
@@ -51,7 +51,7 @@ class WarpX(Base):
 
     def __init__(self, input_file=None, *, initial_particles=None, verbose=False, timeout=None, workdir=None, path=None, **kwargs):
         super().__init__(input_file=input_file, initial_particles=initial_particles, verbose=verbose, timeout=timeout)
-        
+
         self._diag_dir = None
         self._outputs = {}
         self._grid = None
@@ -59,6 +59,7 @@ class WarpX(Base):
         self._sim = None
         self._workdir = workdir
         self._path = path
+        self._callbacks = []
 
         if not input_file is None:
             with open(input_file, 'r') as f:
@@ -239,7 +240,7 @@ class WarpX(Base):
             diag_params = ["num_snapshots", "dt_snapshots", "data_list", "z_subsampling", "time_start", "parallelio", "name", "warpx_format", "warpx_openpmd_backend", "warpx_openpmd_encoding", "warpx_file_prefix", "warpx_intervals", "warpx_file_min_digits", "warpx_buffer_size", "warpx_lower_bound", "warpx_upper_bound", "warpx_verbose"]
 
         if not diag_type == "Reduced":
-            applied_kwargs["write_dir"] = os.path.join(self._path, "diags")
+            applied_kwargs["write_dir"] = diag_config.get("write_dir", os.path.join(self._path, "diags"))
             if not "warpx_format" in diag_config:
                 applied_kwargs["warpx_format"] = "openpmd"
             if not "warpx_openpmd_backend" in diag_config:
@@ -268,6 +269,7 @@ class WarpX(Base):
             "ConstantApplied": "ConstantAppliedField",
             "AnalyticApplied": "AnalyticAppliedField",
             "FromFile": "LoadInitialField",
+            "AppliedFromFile": "LoadAppliedField",
             "PlasmaLens": "PlasmaLens",
             "Mirror": "Mirror",
         }
@@ -285,6 +287,10 @@ class WarpX(Base):
             self._validate_inputs(["path"], field_config, "fields.")
             applied_kwargs["read_fields_from_path"] = field_config["path"]
             field_params = ["load_B", "load_E", "warpx_do_initial_div_cleaning", "warpx_projection_div_cleaner_atol", "warpx_projection_div_cleaner_rtol"]
+        elif field_type == "AppliedFromFile":
+            self._validate_inputs(["path"], field_config, "fields.")
+            applied_kwargs["read_fields_from_path"] = field_config["path"]
+            field_params = ["load_B", "load_E", "warpx_E_time_function", "warpx_B_time_function"]
         elif field_type == "PlasmaLens":
             self._validate_inputs(["period", "starts", "lengths"], field_config, "fields.")
             field_params = ["period", "starts", "lengths", "strengths_E", "strengths_B"]
@@ -292,9 +298,9 @@ class WarpX(Base):
             self._validate_inputs(["depth", "number_of_cells"], field_config, "fields.")
             field_params = ["x_front_location", "y_front_location", "z_front_location", "depth", "number_of_cells"]
 
+        consumed = {"field_type", "path"}
         for k in field_config:
-            if k not in field_params:
-                if k == "field_type": continue
+            if k not in field_params and k not in consumed:
                 raise ValueError(f"Unknown attribute WarpX.inputs.fields.{k}")
 
         kwargs = {k: field_config[k] for k in field_params if k in field_config} | applied_kwargs
@@ -313,7 +319,11 @@ class WarpX(Base):
             raise ValueError(f"WarpX.input.species.distribution-type is invalid value `{distribution}`")
         if not layout in self.available.species_layouts:
             raise ValueError(f"WarpX.input.species.layout is invalid value `{layout}`")
-        
+
+        if distribution == "FromInitialParticles":
+            distribution = "ParticleList"
+            species_config = {**species_config, **self._initial_particle_arrays(species_config.get("n_seed"))}
+
         dist_cls = getattr(pywarpx.picmi, f"{distribution}Distribution")
 
         dist_params = []
@@ -351,7 +361,7 @@ class WarpX(Base):
 
         species_params = ["particle_type", "name", "charge_state", "charge", "mass", "particle_shape", "density_scale", "method", "warpx_add_int_attributes", "warpx_add_real_attributes", "warpx_do_not_deposit", "warpx_do_not_gather", "warpx_do_not_push", "warpx_do_resampling", "warpx_do_temperature_deposition", "warpx_radial_numpercell_power", "warpx_random_theta", "warpx_reflection_model_eb", "warpx_reflection_model_xhi", "warpx_reflection_model_xlo", "warpx_reflection_model_yhi", "warpx_reflection_model_ylo", "warpx_reflection_model_zhi", "warpx_reflection_model_zlo", "warpx_resampling_algorithm", "warpx_resampling_min_ppc", "warpx_save_particles_at_eb", "warpx_save_particles_at_xhi", "warpx_save_particles_at_xlo", "warpx_save_particles_at_yhi", "warpx_save_particles_at_ylo", "warpx_save_particles_at_zhi", "warpx_save_particles_at_zlo", "warpx_save_previous_position", "warpx_self_fields_max_iters", "warpx_self_fields_verbosity"]
 
-        allowed = set(species_params) | set(dist_params) | set(layout_params) | {"distribution-type", "layout", "initialize_self_field"}
+        allowed = set(species_params) | set(dist_params) | set(layout_params) | {"distribution-type", "layout", "initialize_self_field", "n_seed"}
         for k in species_config:
             if k not in allowed:
                 raise ValueError(f"Unknown attribute WarpX.inputs.species.{k}")
@@ -362,6 +372,40 @@ class WarpX(Base):
             layout=layout_cls,
             initialize_self_field=species_config["initialize_self_field"] if "initialize_self_field" in species_config else None
         )
+
+    def _initial_particle_arrays(self, n_seed=None):
+        pg = self._initial_particles
+        if pg is None:
+            raise ValueError("species distribution-type FromInitialParticles requires WarpX(initial_particles=...)")
+        c = scipy.constants.c
+        sl = slice(0, n_seed) if n_seed else slice(None)
+        return dict(
+            x=np.asarray(pg.x)[sl], y=np.asarray(pg.y)[sl], z=np.asarray(pg.z)[sl],
+            ux=(pg.gamma * pg.beta_x * c)[sl],
+            uy=(pg.gamma * pg.beta_y * c)[sl],
+            uz=(pg.gamma * pg.beta_z * c)[sl],
+            weight=(np.abs(pg.weight) / scipy.constants.e)[sl],
+        )
+
+    def install_callback(self, when, fn):
+        self._callbacks.append((when, fn))
+
+    def set(self, path, value):
+        if self._input is None:
+            raise ValueError("no input loaded; pass input_file= before calling set()")
+        keys = path.split("/") if isinstance(path, str) else list(path)
+        node = self._input
+        for k in keys[:-1]:
+            node = node[int(k)] if isinstance(node, list) else node[k]
+        last = keys[-1]
+        if isinstance(node, list):
+            node[int(last)] = value
+        else:
+            node[last] = value
+
+    def update(self, overrides):
+        for path, value in overrides.items():
+            self.set(path, value)
 
     def _build_collisions(self, collison_config):
         raise NotImplementedError
@@ -378,22 +422,34 @@ class WarpX(Base):
     def _build_preconditioner(self, pc_config):
         raise NotImplementedError
 
-    def run(self):
+    def run(self, progress=None, log_path=None):
         if not self._configured:
             self.configure()
+
+        for when, fn in self._callbacks:
+            pywarpx.callbacks.installcallback(when, fn)
 
         t0 = time.time()
         self.vprint("Running WarpX...")
         try:
-            self._sim.step()
+            if progress:
+                self._step_with_progress(progress, log_path)
+            else:
+                self._sim.step()
             self._finished = True
         except Exception:
             self._error = True
             raise
         finally:
+            for when, fn in self._callbacks:
+                try: pywarpx.callbacks.uninstallcallback(when, fn)
+                except Exception: pass
             self.vprint(f"WarpX run took {time.time() - t0:.1f} s")
 
-        self.load_output()
+        try:
+            self.load_output()
+        except Exception as e:
+            self.vprint(f"load_output skipped: {e}")
 
     def archive(self, h5=None):
         if h5 is None:
@@ -480,6 +536,42 @@ class WarpX(Base):
         return self._outputs
 
     # TODO: replace the remainder of the file from here with human code (below was generated with Claude Opus 4.8)
+
+    def _step_with_progress(self, desc, log_path=None):
+        from tqdm import tqdm
+
+        nsteps = int(self._input["simulation"]["max_steps"])
+        bar_fd = os.dup(1)                       # dup of fd 1: bar still hits the terminal post-redirect
+        bar_file = os.fdopen(bar_fd, "w", buffering=1, closefd=False)
+        tty = bar_file.isatty()
+        bar = tqdm(total=nsteps, unit="step", desc=str(desc), ncols=88, leave=True,
+                   file=bar_file, disable=not tty)
+        state = {"n": 0}
+
+        def _tick():
+            bar.update(1)
+            state["n"] += 1
+
+        target = log_path or os.environ.get("PIPELINE_LOG_PATH") or os.devnull
+        saved_out = saved_err = redir_fd = None
+        try:
+            pywarpx.callbacks.installcallback("afterstep", _tick)
+            redir_fd = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+            saved_out, saved_err = os.dup(1), os.dup(2)
+            os.dup2(redir_fd, 1); os.dup2(redir_fd, 2)
+            self._sim.step()
+        finally:
+            if redir_fd is not None:
+                try: os.close(redir_fd)
+                except Exception: pass
+            if saved_out is not None: os.dup2(saved_out, 1); os.close(saved_out)
+            if saved_err is not None: os.dup2(saved_err, 2); os.close(saved_err)
+            try: pywarpx.callbacks.uninstallcallback("afterstep", _tick)
+            except Exception: pass
+            if bar.total and bar.n < bar.total:
+                bar.n = bar.total; bar.refresh()
+            bar.close()
+            os.close(bar_fd)
 
     def _validate_output(self):
         if not self._outputs:
